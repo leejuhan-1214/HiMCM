@@ -233,6 +233,55 @@ export function createWorld(container, { onSelect } = {}) {
   pickables.push(...hiveParts);
   const entrance = new THREE.Vector3(-7.51, 0.87, -2);
 
+  // A cutaway teaching view. Cell counts are representative marks scaled from
+  // the daily stage totals; they are not literal one-cell-per-bee records.
+  const hiveExteriorParts = [...hive.children];
+  const hiveInterior = new THREE.Group();
+  hiveInterior.visible = false;
+  hive.add(hiveInterior);
+  const combBack = mesh(boxGeometry, material('comb-shadow', '#5d482d', { roughness: 1 }), [0, 1.95, 0.98], [2.7, 2.62, 0.09], [0, 0, 0], hiveInterior);
+  combBack.userData.pickType = 'hive';
+  pickables.push(combBack);
+  const combFrameItems = [
+    { p: [0, 0.62, 1.11], s: [3.02, 0.16, 0.16] }, { p: [0, 3.29, 1.11], s: [3.02, 0.16, 0.16] },
+    { p: [-1.43, 1.96, 1.11], s: [0.16, 2.82, 0.16] }, { p: [1.43, 1.96, 1.11], s: [0.16, 2.82, 0.16] },
+  ];
+  batch(boxGeometry, paleWood, combFrameItems, hiveInterior, false);
+  const combCellGeometry = geometry('comb-cell', () => new THREE.CylinderGeometry(0.118, 0.118, 0.075, 6));
+  const combCellPositions = [];
+  for (let row = 0; row < 11; row++) for (let column = 0; column < 10; column++) {
+    combCellPositions.push(new THREE.Vector3(-1.08 + column * 0.24 + (row % 2) * 0.12, 0.82 + row * 0.215, 1.18));
+  }
+  const combEmpty = new THREE.InstancedMesh(combCellGeometry, material('comb-empty', '#c59646', { roughness: 0.88 }), combCellPositions.length);
+  combEmpty.count = combCellPositions.length;
+  combEmpty.castShadow = false;
+  for (let i = 0; i < combCellPositions.length; i++) {
+    dummy.position.copy(combCellPositions[i]);dummy.rotation.set(Math.PI / 2, 0, 0);dummy.scale.set(1, 1, 1);dummy.updateMatrix();combEmpty.setMatrixAt(i, dummy.matrix);
+  }
+  combEmpty.instanceMatrix.needsUpdate = true;hiveInterior.add(combEmpty);
+  const cellStyles = {
+    egg: material('cell-egg', '#fff4cf', { emissive: '#f2d98c', emissiveIntensity: 0.15 }),
+    larva: material('cell-larva', '#f6eee1', { emissive: '#fff4dd', emissiveIntensity: 0.1 }),
+    capped: material('cell-capped', '#b77b42'),
+    honey: material('cell-honey', '#f2b83f', { emissive: '#d89325', emissiveIntensity: 0.22 }),
+  };
+  const combStages = {};
+  for (const [key, mat] of Object.entries(cellStyles)) {
+    const object = new THREE.InstancedMesh(combCellGeometry, mat, combCellPositions.length);
+    object.count = 0;object.castShadow = false;object.instanceMatrix.setUsage(THREE.DynamicDrawUsage);hiveInterior.add(object);combStages[key] = object;
+  }
+  const queen = new THREE.Group();
+  queen.position.set(-0.5, 2.1, 1.38);hiveInterior.add(queen);
+  const interiorBee = material('interior-bee', '#e5a92f', { roughness: 0.65 });
+  const interiorBlack = material('interior-bee-black', '#4c3c27', { roughness: 0.82 });
+  mesh(sphereGeometry, material('queen-gold', '#edb83c', { emissive: '#bf791f', emissiveIntensity: 0.18 }), [0, 0, 0], [0.12, 0.11, 0.32], [Math.PI / 2, 0, 0], queen);
+  mesh(sphereGeometry, interiorBlack, [0, 0.24, 0], [0.12, 0.12, 0.12], [0, 0, 0], queen);
+  const queenCrown = mesh(geometry('queen-crown', () => new THREE.ConeGeometry(0.11, 0.18, 5)), material('queen-crown', '#f8dc72', { emissive: '#e4b735', emissiveIntensity: 0.25 }), [0, 0.42, 0], [1, 1, 1], [0, 0, Math.PI], queen);
+  queenCrown.castShadow = false;
+  const nurseCount = 14;
+  const nurseMesh = new THREE.InstancedMesh(sphereGeometry, interiorBee, nurseCount);
+  nurseMesh.count = nurseCount;nurseMesh.castShadow = false;nurseMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);hiveInterior.add(nurseMesh);
+
   // A single readable physical label, generated locally (no remote asset).
   const labelCanvas = document.createElement('canvas');
   labelCanvas.width = 256;
@@ -398,6 +447,7 @@ export function createWorld(container, { onSelect } = {}) {
   beePart('eyes', sphereGeometry, material('bee-eyes', '#fff8d7'), 2);
   beePart('pupils', sphereGeometry, beeBlack, 2);
   beePart('wings', sphereGeometry, material('bee-wings', '#e8f5f4', { transparent: true, opacity: 0.66, roughness: 0.2, depthWrite: false }), 2);
+  beePart('pollen', sphereGeometry, material('bee-pollen', '#f2a928', { emissive: '#dc821c', emissiveIntensity: 0.24 }), 2);
   const beePositions = Array.from({ length: MAX_BEES }, () => new THREE.Vector3());
   const beeDirections = Array.from({ length: MAX_BEES }, () => new THREE.Vector3(1, 0, 0));
   const beeSeeds = Array.from({ length: MAX_BEES }, (_, index) => ({ phase: mod(index * 0.61803398875), lift: range(1.5, 3.2), bend: range(-2.3, 2.3), size: range(0.82, 1.16), speed: range(0.025, 0.036), flower: (index * 37) % flowerRecords.length }));
@@ -475,11 +525,14 @@ export function createWorld(container, { onSelect } = {}) {
       setBeePart('stripes', i * 2 + 1, [0, 0, 0.095], [1.06, 0.84, 0.8]);
       setBeePart('head', i, [0, 0.024, 0.29], [0.145, 0.135, 0.14]);
       const flap = Math.sin(motion * 22 + i * 1.7) * 0.7;
+      const phase = mod(motion * beeSeeds[i].speed + beeSeeds[i].phase);
+      const pollenScale = visibleFlowers > 0 && activity > 0.05 && phase >= 0.62 && phase < 0.97 ? 0.072 : 0.0001;
       for (let side = 0; side < 2; side++) {
         const sign = side ? 1 : -1;
         setBeePart('eyes', i * 2 + side, [sign * 0.065, 0.069, 0.402], [0.042, 0.044, 0.025]);
         setBeePart('pupils', i * 2 + side, [sign * 0.065, 0.07, 0.422], [0.019, 0.024, 0.013]);
         setBeePart('wings', i * 2 + side, [sign * 0.19, 0.155, -0.08], [0.21, 0.022, 0.3], [0.1, sign * 0.35, sign * (0.3 + flap)]);
+        setBeePart('pollen', i * 2 + side, [sign * 0.17, -0.105, -0.17], [pollenScale, pollenScale * 0.82, pollenScale]);
       }
     }
     for (const { object } of Object.values(beeParts)) object.instanceMatrix.needsUpdate = true;
@@ -525,6 +578,39 @@ export function createWorld(container, { onSelect } = {}) {
   pulse.frustumCulled = false;
   world.add(pulse);
 
+  function updateHiveCutaway(state, motion) {
+    if (!hiveInterior.visible) return;
+    const eggs = Math.max(0, number(state.eggs));
+    const brood = Math.max(0, number(state.brood));
+    const immature = eggs + brood;
+    const stageCells = Math.round(82 * clamp(immature / (immature + 8000), 0, 1));
+    const eggCells = immature > 0 ? Math.round(stageCells * eggs / immature) : 0;
+    const broodCells = Math.max(0, stageCells - eggCells);
+    const larvaCells = Math.round(broodCells * 0.34);
+    const cappedCells = broodCells - larvaCells;
+    const honeyCells = Math.min(combCellPositions.length - stageCells, Math.round(12 + clamp(number(state.seasonalActivity), 0, 1) * 10));
+    const counts = { egg: eggCells, larva: larvaCells, capped: cappedCells, honey: honeyCells };
+    let cursor = Math.floor(mod(number(state.day), combCellPositions.length));
+    for (const [key, object] of Object.entries(combStages)) {
+      object.count = counts[key];
+      for (let i = 0; i < object.count; i++) {
+        const p = combCellPositions[cursor % combCellPositions.length];cursor++;
+        dummy.position.set(p.x, p.y, 1.235);dummy.rotation.set(Math.PI / 2, 0, 0);dummy.scale.set(0.76, 0.58, 0.76);dummy.updateMatrix();object.setMatrixAt(i, dummy.matrix);
+      }
+      object.instanceMatrix.needsUpdate = true;
+    }
+    queen.position.x = Math.sin(motion * 0.12) * 0.52;
+    queen.position.y = 2.04 + Math.sin(motion * 0.09) * 0.32;
+    queen.rotation.z = Math.sin(motion * 0.08) * 0.14;
+    nurseMesh.count = Math.round(clamp(number(state.hiveBees) / 1400, 3, nurseCount));
+    for (let i = 0; i < nurseMesh.count; i++) {
+      const p = combCellPositions[(i * 7 + Math.floor(motion * 0.05)) % combCellPositions.length];
+      dummy.position.set(p.x + Math.sin(motion * 0.4 + i) * 0.05, p.y + Math.cos(motion * 0.32 + i) * 0.04, 1.35);
+      dummy.rotation.set(0, 0, motion * 0.08 + i);dummy.scale.set(0.055, 0.12, 0.055);dummy.updateMatrix();nurseMesh.setMatrixAt(i, dummy.matrix);
+    }
+    nurseMesh.instanceMatrix.needsUpdate = true;
+  }
+
   let quality = 'high';
   let disposed = false;
   let latest = { season: 'spring', weather: 'clear', activity: 1, flowerCoverage: 1, beeCount: 80, hour: 11, playing: false, motionTime: 0 };
@@ -537,6 +623,8 @@ export function createWorld(container, { onSelect } = {}) {
   let cameraUserControlled = false;
   let pointerStart = null;
   let selectedType = null;
+  let detailMode = false;
+  let lastVisitedFlowerCount = -1;
   let followIndex = 0;
   const raycaster = new THREE.Raycaster();
   const pointer = new THREE.Vector2();
@@ -585,6 +673,7 @@ export function createWorld(container, { onSelect } = {}) {
     const presets = {
       overview: { position: overviewPosition, target: new THREE.Vector3(0, 0.3, 0) },
       hive: { position: new THREE.Vector3(-1.8, 5.7, 6.7), target: new THREE.Vector3(-8.6, 1.5, -1.7) },
+      inside: { position: new THREE.Vector3(-2.4, 3.7, -1.4), target: new THREE.Vector3(-8.2, 1.95, -2) },
       flowers: { position: new THREE.Vector3(12.5, 8.2, 15), target: new THREE.Vector3(4.4, 0.6, 2.5) },
     };
     if (preset === 'follow') {
@@ -595,6 +684,14 @@ export function createWorld(container, { onSelect } = {}) {
     const chosen = presets[preset] ?? presets.overview;
     cameraPreset = Object.hasOwn(presets, preset) ? preset : 'overview';
     cameraTransition = { from: camera.position.clone(), fromTarget: controls.target.clone(), to: chosen.position.clone(), target: chosen.target.clone(), progress: 0 };
+  }
+
+  function setDetail(value) {
+    detailMode = Boolean(value);
+    hiveInterior.visible = detailMode;
+    for (const object of hiveExteriorParts) object.visible = !detailMode;
+    if (hiveSnow) hiveSnow.visible = !detailMode && latest.season === 'winter';
+    if (detailMode) updateHiveCutaway(latest, lastMotion ?? 0);
   }
 
   function resize() {
@@ -655,7 +752,7 @@ export function createWorld(container, { onSelect } = {}) {
       fruitMaterial.color.set(tones.fruit);
       flowerMaterial.color.set(weather === 'drought' ? '#d7c5aa' : '#ffffff');
       treeSnow.visible = winter;
-      hiveSnow.visible = winter;
+      hiveSnow.visible = winter && !detailMode;
       groundSnow.visible = winter;
       treeFruit.visible = !winter;
       snow.visible = winter;
@@ -705,6 +802,13 @@ export function createWorld(container, { onSelect } = {}) {
     appearance(latest);
     renderedBeeCount = Math.round(clamp(number(latest.beeCount, 80), 0, MAX_BEES));
     updateBees(renderedBeeCount, motion, clamp(number(latest.activity, 1), 0, 1), visibleFlowerCount);
+    updateHiveCutaway(latest, motion);
+    const visitedFlowerCount = latest.inBloom ? Math.round(visibleFlowerCount * clamp(number(latest.pollinationRate), 0, 1)) : 0;
+    if (visitedFlowerCount !== lastVisitedFlowerCount) {
+      lastVisitedFlowerCount = visitedFlowerCount;
+      for (let i = 0; i < visibleFlowerCount; i++) centerMesh.setColorAt(i, color.set(i < visitedFlowerCount ? '#ff9f2e' : '#f6c958'));
+      if (centerMesh.instanceColor) centerMesh.instanceColor.needsUpdate = true;
+    }
     clouds.position.x = Math.sin(motion * 0.016) * 1.2;
     ripple.scale.setScalar(0.85 + mod(motion * 0.05) * 0.4);
     ripple.material.opacity = 0.45 * (1 - mod(motion * 0.05));
@@ -772,6 +876,7 @@ export function createWorld(container, { onSelect } = {}) {
       renderedBees: renderedBeeCount, visibleFlowers: visibleFlowerCount,
       drawCalls: renderer.info.render.calls, triangles: renderer.info.render.triangles,
       camera: cameraPreset, selected: selectedType,
+      detailMode,
       motionTime: lastMotion ?? 0, playing: Boolean(latest.playing),
       modelAdults: number(latest.adults), modelForagers: number(latest.foragers),
       representation: '대표 개체 · 공간은 설명용 · 한 벌통',
@@ -799,5 +904,5 @@ export function createWorld(container, { onSelect } = {}) {
     renderer.domElement.remove();
   }
 
-  return { update, setCamera, setRoutes: value => { routes.visible = Boolean(value); }, setQuality, resize, dispose, getStats };
+  return { update, setCamera, setDetail, setRoutes: value => { routes.visible = Boolean(value); }, setQuality, resize, dispose, getStats };
 }

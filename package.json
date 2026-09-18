@@ -1,6 +1,6 @@
 {
   "name": "himcm-beelab",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "description": "Reproducible honeybee colony and crop pollination laboratory for HiMCM 2022 Problem A",

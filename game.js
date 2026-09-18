@@ -11,6 +11,7 @@ const paths = {
   sliders:'<path d="M5 3v18M12 3v18M19 3v18M2 8h6M9 16h6M16 8h6"/>',
   pin:'<path d="M19 9c0 5-7 12-7 12S5 14 5 9a7 7 0 1 1 14 0Z"/><circle cx="12" cy="9" r="2"/>',
   route:'<circle cx="5" cy="18" r="3"/><circle cx="19" cy="6" r="3"/><path d="M8 18h7a4 4 0 0 0 0-8H9a4 4 0 0 1 0-8h4" stroke-dasharray="2 3"/>',
+  comb:'<path d="m8 3 4-2 4 2v5l-4 2-4-2ZM3 11l4-2 4 2v5l-4 2-4-2Zm10 0 4-2 4 2v5l-4 2-4-2Zm-5 8 4-2 4 2v4H8Z"/>',
   world:'<path d="m12 3 10 5-10 5L2 8Zm-10 9 10 5 10-5M2 16l10 5 10-5"/>',
   hive:'<path d="m12 2 9 5v10l-9 5-9-5V7Zm-9 5 9 5 9-5M12 12v10M3 11l9 5 9-5M3 15l9 5 9-5"/>',
   flower:'<path d="M12 10C3-1 0 13 9 13C-2 20 14 26 12 15C19 26 27 11 15 12C26 4 10-4 12 10Z"/><circle cx="12" cy="12" r="2"/>',
@@ -26,7 +27,7 @@ const paths = {
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[n]||paths.world}</svg>`;
 $$('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
 let params={...DEFAULTS}, farm={...POLLINATION_DEFAULTS}, weather='clear', scenario='baseline';
-let result=simulate(params), world, frame, selection=null, routes=false, toastTimer, lastTime=0, lastUI=0, rafId=0, disposed=false, returnToPlay=false, snapshotURL=null;
+let result=simulate(params), world, frame, selection=null, routes=false, detail=false, toastTimer, lastTime=0, lastUI=0, rafId=0, disposed=false, returnToPlay=false, snapshotURL=null;
 const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const timeline=createTimeline({day:130,hour:11,speed:.25,playing:!reduced});
 function toast(text){$('#world-toast').textContent=text;$('#world-toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#world-toast').classList.remove('visible'),3300);}
@@ -56,6 +57,19 @@ function updateControls(){
   $('#time-rate').textContent=`1초 = ${fmt(t.speed*6,1)}시간`;
   $('#loop-button').setAttribute('aria-pressed',String(t.loop));$('#loop-button').setAttribute('aria-label',t.loop?'연간 반복 끄기':'연간 반복 켜기');
 }
+function updateDetailUI(){
+  if(!frame)return;
+  const values={eggs:frame.eggs,brood:frame.brood,hive:frame.hiveBees,foragers:frame.foragers};
+  for(const [key,value] of Object.entries(values)){$(`#detail-${key}`).textContent=`${fmt(value)}마리`;}
+  $('#detail-laying').textContent=`${fmt(frame.viableLaying)}개`;
+  $('#detail-emerged').textContent=`${fmt(frame.emerged)}마리`;
+  $('#detail-recruits').textContent=`${fmt(frame.recruits)}마리`;
+  $('#detail-deaths').textContent=`${fmt(frame.deaths)}마리`;
+  $('#detail-care').textContent=`${fmt(frame.care*100)}%`;
+  $('#detail-care-fill').style.width=`${frame.care*100}%`;
+  const story=frame.season==='winter'?'월동기에는 여왕의 산란과 채집 전환이 줄고, 긴 수명의 겨울벌이 군집을 지탱합니다.':frame.viableLaying>1200?'여왕의 산란이 활발합니다. 육아벌이 알과 유충을 돌보고 새 일벌이 계속 우화합니다.':frame.recruits>frame.emerged?'내근벌에서 채집벌로 넘어가는 수가 많아, 벌통 밖 노동 비중이 커지는 시기입니다.':'군집이 다음 세대의 알과 유충을 키우며 채집 인력을 보충하고 있습니다.';
+  $('#detail-story').textContent=story;
+}
 function updateUI(){
   $('#world-adults').innerHTML=`${fmt(frame.adults)}<small>마리</small>`;
   $('#world-foragers').innerHTML=`${fmt(frame.activeForagers)}<small>마리</small>`;
@@ -69,21 +83,26 @@ function updateUI(){
   $('#spark-cursor')?.setAttribute('x1',String(Math.min(180,frame.elapsedDays/365*180)));$('#spark-cursor')?.setAttribute('x2',String(Math.min(180,frame.elapsedDays/365*180)));
   document.body.dataset.night=String(frame.daylight<.05);
   if(world){const s=world.getStats();$('#world').dataset.renderedBees=String(s.renderedBees);$('#world').dataset.drawCalls=String(s.drawCalls);$('#world').dataset.motionTime=String(s.motionTime);$('#world').dataset.camera=s.camera;}
-  updateControls(); if(selection) updateSelectionDetails();
+  updateControls();updateDetailUI(); if(selection) updateSelectionDetails();
 }
 function seek(day,hour=12){timeline.pause();timeline.seek(day,hour);refreshFrame();updateUI();}
 function togglePlay(){if(timeline.getState().elapsedDays>=365)timeline.seek(0,0);timeline.toggle();refreshFrame();updateControls();}
 function environment(open=$('#environment-panel').hidden){
   // Call with true to open, false to close; callers provide explicit intent.
+  if(open&&detail)detailView(false,false);
   $('#environment-panel').hidden=!open;$('#environment-button').setAttribute('aria-expanded',String(open));
 }
+function detailView(open=!detail,moveCamera=true){
+  detail=Boolean(open);$('#detail-panel').hidden=!detail;$('#detail-button').setAttribute('aria-expanded',String(detail));
+  world?.setDetail(detail);if(detail){environment(false);if(moveCamera)world?.setCamera('inside');updateDetailUI();}else if(moveCamera)world?.setCamera('hive');
+}
 function selectObject(item){
-  if(!item)return;selection=item;$('#selection-panel').hidden=false;$('#selection-type').textContent={hive:'INSIDE THE COLONY',flowers:'THE FLOWERING FIELD',bee:'A FORAGER’S JOURNEY'}[item.type]||'FIELD NOTES';
+  if(!item)return;if(item.type==='hive'){detailView(true);selection=null;$('#selection-panel').hidden=true;return;}selection=item;$('#selection-panel').hidden=false;$('#selection-type').textContent={hive:'INSIDE THE COLONY',flowers:'THE FLOWERING FIELD',bee:'A FORAGER’S JOURNEY'}[item.type]||'FIELD NOTES';
   $('#selection-title').textContent=item.title||{hive:'하나의 벌통, 여러 역할',flowers:'꽃이 피는 시간',bee:'벌의 하루를 따라가면'}[item.type]||'가상 생태계';
   $('#selection-description').textContent=item.description||'시간을 움직여 변화를 관찰하세요.';updateSelectionDetails();
 }
 function updateSelectionDetails(){
-  const details=selection.type==='hive'?[['내근벌',`${fmt(frame.hiveBees)} 마리`],['알·유충·번데기',`${fmt(frame.eggs+frame.brood)} 마리`]]:selection.type==='flowers'?[['현재 개화',frame.inBloom?'개화 중':'개화 전후'],['유효 방문 / 일',`${fmt(frame.dailySupply)} 회`]]:[['화면에 보이는 표본',`${frame.beeCount} 마리`],['활동하는 채집벌',`${fmt(frame.activeForagers)} 마리`]];
+  const details=selection.type==='hive'?[['여왕 산란 / 일',`${fmt(frame.viableLaying)} 개`],['오늘 우화',`${fmt(frame.emerged)} 마리`],['채집 전환',`${fmt(frame.recruits)} 마리`]]:selection.type==='flowers'?[['현재 개화',frame.inBloom?'개화 중':'개화 전후'],['유효 방문 / 일',`${fmt(frame.dailySupply)} 회`],['수분 충족률',frame.inBloom?`${fmt(frame.pollinationRate*100)}%`:'—']]:[['화면의 대표 벌',`${frame.beeCount} 마리`],['활동 채집벌',`${fmt(frame.activeForagers)} 마리`],['귀환 벌의 꽃가루',frame.inBloom?'뒷다리 노란 화분단':'없음']];
   $('#selection-details').innerHTML=details.map(([k,v])=>`<div class="selection-mini"><span>${k}</span><b>${v}</b></div>`).join('');
 }
 function showResults(){
@@ -93,14 +112,14 @@ function showResults(){
   saveSnapshot();$('#results-dialog').showModal();
 }
 function saveSnapshot(){
-  const data={version:'2.0.0',timestamp:new Date().toISOString(),params,farm,timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Counts interpolate a deterministic daily cohort model.','3D bees are illustrative samples, not individually modelled colony members.','Weather scales same-day foraging, not future colony demographics.']};
+  const data={version:'2.1.0',timestamp:new Date().toISOString(),params,farm,timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Counts interpolate a deterministic daily cohort model.','3D bees and comb cells are illustrative samples, not individually modelled colony members.','Weather scales same-day foraging, not future colony demographics.']};
   if(snapshotURL)URL.revokeObjectURL(snapshotURL);snapshotURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));$('#export-world').href=snapshotURL;
   let preview=$('#snapshot-preview');if(!preview){preview=document.createElement('details');preview.id='snapshot-preview';preview.innerHTML='<summary>다운로드가 시작되지 않나요? JSON 내용 보기</summary><textarea id="snapshot-json" readonly aria-label="현재 시점 JSON 데이터" rows="7"></textarea>';$('#results-dialog').append(preview);}$('#snapshot-json').value=JSON.stringify(data,null,2);
 }
 document.addEventListener('click',event=>{
   const b=event.target.closest('button');if(!b)return;
   if(b.dataset.speed){timeline.setSpeed(Number(b.dataset.speed));updateControls();return;}
-  if(b.dataset.camera){world?.setCamera(b.dataset.camera);$$('[data-camera]').forEach(el=>{const a=el===b;el.classList.toggle('selected',a);el.setAttribute('aria-pressed',String(a));});if(b.dataset.camera==='follow'&&frame.beeCount===0)toast('지금 벌들이 쉬고 있어요. 낮이나 개화기로 이동해 보세요.');return;}
+  if(b.dataset.camera){if(detail)detailView(false,false);world?.setCamera(b.dataset.camera);$$('[data-camera]').forEach(el=>{const a=el===b;el.classList.toggle('selected',a);el.setAttribute('aria-pressed',String(a));});if(b.dataset.camera==='follow'&&frame.beeCount===0)toast('지금 벌들이 쉬고 있어요. 낮이나 개화기로 이동해 보세요.');return;}
   if(b.dataset.weather){weather=b.dataset.weather;$$('[data-weather]').forEach(el=>{el.classList.toggle('selected',el===b);el.setAttribute('aria-pressed',String(el===b));});refreshFrame();updateUI();return;}
   switch(b.id){
     case 'world-play':togglePlay();break;
@@ -110,6 +129,8 @@ document.addEventListener('click',event=>{
     case 'loop-button':timeline.setLoop(!timeline.getState().loop);updateControls();break;
     case 'environment-button':environment($('#environment-panel').hidden);break;
     case 'close-environment':environment(false);break;
+    case 'detail-button':detailView(!detail);break;
+    case 'close-detail':detailView(false);break;
     case 'routes-button':routes=!routes;b.setAttribute('aria-pressed',String(routes));world?.setRoutes(routes);break;
     case 'close-selection':selection=null;$('#selection-panel').hidden=true;break;
     case 'jump-bloom':seek((farm.bloomStart-1+Math.min(10,Math.floor(farm.bloomDays/2)))%365,12);environment(false);toast('꽃이 핀 날의 낮 12시로 이동했어요.');break;
@@ -132,6 +153,7 @@ document.addEventListener('keydown',e=>{
   else if(e.code==='ArrowRight'){e.preventDefault();seek(Math.min(365,frame.day+1),frame.hour);}
   else if(e.key.toLowerCase()==='e')environment($('#environment-panel').hidden);
   else if(e.key.toLowerCase()==='r')$('#routes-button').click();
+  else if(e.key.toLowerCase()==='i')detailView(!detail);
 });
 document.addEventListener('visibilitychange',()=>{lastTime=0;if(document.hidden){returnToPlay=timeline.getState().playing;timeline.pause();}else if(returnToPlay){timeline.play();returnToPlay=false;}});
 function animate(now){

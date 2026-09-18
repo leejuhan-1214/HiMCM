@@ -145,6 +145,14 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
   const eggs = interpolate('eggs');
   const brood = interpolate('brood');
   const drones = interpolate('drones');
+  const viableLaying = interpolate('viableLaying');
+  const laying = interpolate('laying');
+  const emerged = interpolate('emerged');
+  const droneEmerged = interpolate('droneEmerged');
+  const recruits = interpolate('recruits');
+  const deaths = interpolate('deaths');
+  const care = clamp(interpolate('care'), 0, 1);
+  const foragerMortality = clamp(interpolate('muF'), 0, 1);
   const seasonalActivity = clamp(interpolate('activity'), 0, 1);
   const selectedWeather = Object.hasOwn(WEATHER, weather) ? weather : 'clear';
   const conditions = WEATHER[selectedWeather];
@@ -187,6 +195,7 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
     seasonalActivity, daylight, activity, activeForagers, beeCount,
     flowerCoverage, inBloom,
     adults, foragers, hiveBees, eggs, brood, drones,
+    viableLaying, laying, emerged, droneEmerged, recruits, deaths, care, foragerMortality,
     pollinationRate, dailyDemand, dailySupply, potentialDailySupply,
     effectiveVisits: dailySupply,
     weatherExplanation: '선택한 날씨는 시각화와 당일 채집 능력의 가정입니다. 군집 개체수에는 되먹임하지 않습니다.',
