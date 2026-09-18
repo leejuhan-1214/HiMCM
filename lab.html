@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#202b24">
+  <meta name="description" content="벌통 하나에서 20에이커까지. HiMCM 2022 꿀벌 개체군, 민감도, 작물 수분을 탐구하는 재현 가능한 시뮬레이션.">
+  <title>BeeLab — 데이터 연구실</title>
+  <link rel="icon" type="image/svg+xml" href="./favicon.svg">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+KR:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./styles.css">
+  <script type="module" src="./src/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#main">본문으로 이동</a>
+  <aside class="sidebar" aria-label="메인 탐색">
+    <a class="brand" href="#" aria-label="BeeLab 홈"><span class="brand-icon">⬡</span> BeeLab<span class="brand-dot">.</span></a>
+    <div class="sidebar-caption">COLONY RESEARCH STUDIO</div>
+    <div class="project-label">WORKSPACE <span>2022</span></div>
+    <nav id="navigation">
+      <button data-view="overview" class="nav-item active" aria-current="page"><span data-icon="grid"></span>실험실 <span class="nav-number">01</span></button>
+      <button data-view="sensitivity" class="nav-item"><span data-icon="sliders"></span>민감도 분석 <span class="nav-number">02</span></button>
+      <button data-view="pollination" class="nav-item"><span data-icon="flower"></span>수분 계획 <span class="nav-number">03</span></button>
+      <button data-view="method" class="nav-item"><span data-icon="book"></span>모델과 근거 <span class="nav-number">04</span></button>
+      <button data-view="blog" class="nav-item"><span data-icon="leaf"></span>한 페이지 이야기 <span class="nav-number">05</span></button>
+    </nav>
+    <div class="sidebar-bottom">
+      <div class="sidebar-note"><span class="tiny-label">ONE HIVE. MANY POSSIBILITIES.</span><div class="mini-hive" aria-hidden="true">⬡<span>⬡</span>⬡</div><p>변수를 바꾸고,<br>벌통의 내일을 발견하세요.</p><span class="sidebar-status"><i></i> 브라우저에서 직접 계산</span></div>
+      <a href="https://github.com/leejuhan-1214/HiMCM" target="_blank" rel="noopener" class="repo-link"><span data-icon="github"></span>소스 코드 <span>↗</span></a>
+      <div class="sidebar-footer">HiMCM · Problem A <span>v1.0</span></div>
+    </div>
+  </aside>
+  <div class="workspace">
+    <header class="topbar"><div class="breadcrumb">Workspace <span>/</span> <strong id="breadcrumb-current">실험실</strong></div><div class="topbar-actions"><a class="button button-small" href="./index.html">3D 세계로 돌아가기 ↗</a><span class="save-state"><i></i> 재현 가능한 실험</span><button id="share-btn" class="button button-small" title="현재 실험 설정이 담긴 주소 복사"><span data-icon="link"></span>실험 공유</button><div class="avatar" aria-label="HiMCM 연구 프로젝트">H</div></div></header>
+    <main id="main" tabindex="-1">
+      <div class="page-heading"><div><div class="eyebrow">THE NEED FOR BEES <span>·</span> HiMCM 2022</div><h1 id="page-title">작은 벌통, 커다란 생태계.</h1><p id="page-subtitle">한 마리의 성장이 군집을, 군집의 내일이 농장을 바꿉니다.</p></div><div class="heading-actions"><button id="reset-btn" class="button quiet"><span data-icon="reset"></span>초기화</button><button id="export-btn" class="button primary"><span data-icon="download"></span>결과 내보내기</button></div></div>
+      <section id="overview-view" class="view">
+        <div class="hero-banner"><div class="hero-copy"><span class="pill"><i></i> LIVE SIMULATION</span><h2>벌통의 1년을<br><span>한눈에 탐구하세요.</span></h2><p>산란, 생존, 역할 전환.<br>작은 변화가 만드는 큰 차이를 살펴보세요.</p><button class="text-link" id="how-btn">모델이 작동하는 방식 <span>↗</span></button></div><div class="hero-art" aria-hidden="true"><svg viewBox="0 0 460 230"><defs><pattern id="hexpattern" width="52" height="90" patternUnits="userSpaceOnUse"><path d="M26 1 51 15v30L26 59 1 45V15ZM0 60 25 75v30M52 60 27 75v30" fill="none" stroke="#afb69c" stroke-opacity=".25"/></pattern><radialGradient id="glow"><stop stop-color="#eed38a" stop-opacity=".7"/><stop offset="1" stop-color="#eef0df" stop-opacity="0"/></radialGradient></defs><rect width="460" height="230" fill="url(#hexpattern)"/><circle cx="243" cy="120" r="120" fill="url(#glow)"/><ellipse cx="247" cy="205" rx="66" ry="9" fill="#656e40" opacity=".1"/><g class="floating-hive" transform="translate(171 28)"><path d="M23 132 0 118V44L71 3l72 41v74l-72 41Z" fill="#c39335"/><path d="M0 44 71 3l72 41-72 42Z" fill="#f6cc66"/><path d="M71 86v73l72-41V44Z" fill="#d0a045"/><path d="M10 50 71 86 131 51M10 70 71 106 131 71M10 90 71 126 131 91M10 110 71 146 131 111" stroke="#ac7c27" opacity=".45" stroke-width="2"/><path d="M77 117 92 108v24l-15 9Z" fill="#514723"/><path d="m66 74 15-8 14 8-14 8Z" fill="#ffe19b" opacity=".8"/></g><g class="bee bee-one" transform="translate(119 65) rotate(-25)"><ellipse cx="0" cy="-9" rx="10" ry="6" fill="#fff" opacity=".85"/><ellipse cx="0" cy="9" rx="10" ry="6" fill="#fff" opacity=".85"/><ellipse rx="15" ry="8" fill="#e7b94c"/><path d="M-4-7v14M3-7v14" stroke="#3b4530" stroke-width="4"/><circle cx="13" cy="0" r="5" fill="#3b4530"/></g><g class="bee bee-two" transform="translate(365 153) rotate(160)"><ellipse cx="0" cy="-9" rx="10" ry="6" fill="#fff" opacity=".85"/><ellipse cx="0" cy="9" rx="10" ry="6" fill="#fff" opacity=".85"/><ellipse rx="15" ry="8" fill="#e7b94c"/><path d="M-4-7v14M3-7v14" stroke="#3b4530" stroke-width="4"/><circle cx="13" cy="0" r="5" fill="#3b4530"/></g><path d="M55 149c-25-44 67-94 82-13s-20 84-26 54m220-158c70-30 110 38 48 69" fill="none" stroke="#848e69" stroke-dasharray="4 6" opacity=".6"/></svg><div class="art-tag tag-one"><span class="dot amber"></span>21 days <small>알에서 성충까지</small></div><div class="art-tag tag-two"><span class="dot green"></span>365 days <small>하루씩 연결되는 생태계</small></div></div><div class="hero-detail"><div class="tiny-label">MODEL 01</div><div class="hero-number">1<span>hive</span></div><div class="hero-divider"></div><span>일 단위 · 연령 구조 모델</span><span>계절성 · 군집 피드백</span></div></div>
+        <div class="stat-grid" id="stats"></div>
+        <div class="simulation-layout"><div class="simulation-main">
+          <section class="card population-card"><div class="card-heading"><div><div class="section-kicker">POPULATION DYNAMICS</div><h2>군집의 계절</h2><p>미성숙 개체와 성충을 구분해 관찰합니다.</p></div><div class="segmented" id="chart-mode"><button class="selected" data-mode="adults">성충</button><button data-mode="all">전 단계</button></div></div><div class="chart-toolbar"><div id="chart-legend" class="legend"></div><label class="check-label"><input id="compare-toggle" type="checkbox"> 기준 전체 성충 비교</label></div><div id="population-chart" class="chart-container"></div><div class="chart-footer"><span><i class="dot amber"></i> 노란 영역은 선택한 개화기입니다</span><button id="svg-export" class="text-link">SVG 다운로드 <span>↓</span></button></div></section>
+          <section class="card timeline-card"><div class="card-heading"><div><div class="section-kicker">A DAY IN THE HIVE</div><h2>벌통의 오늘 <span id="current-date" class="date-badge"></span></h2></div><button id="play-btn" class="button circle" aria-label="날짜 애니메이션 재생"><span data-icon="play"></span></button></div><div class="timeline-input"><span>1월</span><input id="day-slider" type="range" min="0" max="364" value="170" aria-label="관찰할 날짜"><span>12월</span></div><div id="life-stages" class="life-stages"></div></section>
+          <div class="insight-strip"><span data-icon="spark"></span><div><strong id="insight-title">모델을 계산하고 있습니다</strong><p id="insight-text">변수를 조절해 연중 군집의 변화를 비교하세요.</p></div><button data-go="sensitivity" aria-label="민감도 분석으로 이동">↗</button></div>
+        </div><aside class="card controls-card"><div class="card-heading"><div><div class="section-kicker">YOUR EXPERIMENT</div><h2>실험 설정</h2></div><span class="pill small">LIVE</span></div><label class="field-label" for="scenario-select">시나리오</label><select id="scenario-select"><option value="baseline">기준 · 온대 계절 시나리오</option><option value="stress">스트레스 · 채집벌 수명 감소</option><option value="recovery">개선 · 생존과 양육 향상</option><option value="custom">사용자 설정</option></select><div class="control-divider"></div><div id="primary-controls"></div><details class="advanced"><summary>생존율과 고급 설정 <span>+</span></summary><div id="advanced-controls"></div></details><button id="run-btn" class="button dark wide"><span data-icon="play"></span>시뮬레이션 실행</button><p class="control-note" id="run-note">설정을 변경하면 자동으로 다시 계산합니다.</p><div class="control-footnote"><span data-icon="info"></span><span>계절·초기조건은 예시 가정입니다. <button data-go="method">값의 근거 확인 ↗</button></span></div></aside></div>
+      </section>
+      <section id="sensitivity-view" class="view" hidden></section>
+      <section id="pollination-view" class="view" hidden></section>
+      <section id="method-view" class="view" hidden></section>
+      <section id="blog-view" class="view" hidden></section>
+      <footer class="page-footer"><span><span class="footer-dot"></span> BeeLab · 하루씩 이해하는 꿀벌의 세계</span><button data-go="method">가정과 참고문헌 ↗</button><span>2022 HiMCM · Problem A</span></footer>
+    </main>
+  </div>
+  <dialog id="export-dialog"><div class="dialog-title"><div><div class="eyebrow">KEEP YOUR DISCOVERIES</div><h2>실험 결과 내보내기</h2></div><button class="icon-btn" id="close-export" aria-label="닫기">×</button></div><p>보고서에 사용할 데이터와 재현에 필요한 설정을 저장합니다.</p><div class="export-options"><button id="download-csv"><span data-icon="table"></span><strong>일별 데이터</strong><small>CSV · 알, 내근벌, 채집벌, 사망·우화량</small><span>↓</span></button><button id="download-pollination"><span data-icon="flower"></span><strong>수분 수요·공급</strong><small>CSV · 개화일별 수요와 한 벌통의 공급</small><span>↓</span></button><button id="download-json"><span data-icon="code"></span><strong>실험 설정</strong><small>JSON · 모델 버전과 파라미터, 수분 조건</small><span>↓</span></button><button id="download-sensitivity"><span data-icon="sliders"></span><strong>민감도 분석</strong><small>CSV · 선택 지표와 실제 변화 범위</small><span>↓</span></button><button id="download-figure"><span data-icon="chart"></span><strong>군집 그래프</strong><small>SVG · 보고서에 넣을 수 있는 벡터 이미지</small><span>↓</span></button></div><label class="import-label">저장한 설정 불러오기 <input id="import-json" type="file" accept=".json,application/json"></label></dialog>
+  <div id="toast" role="status" aria-live="polite"></div>
+  <noscript><div class="noscript">BeeLab 시뮬레이션을 실행하려면 JavaScript를 켜 주세요.</div></noscript>
+</body>
+</html>
