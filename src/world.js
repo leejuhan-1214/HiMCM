@@ -354,6 +354,17 @@ export function createWorld(container, { onSelect } = {}) {
   batch(cylinderGeometry, bark, branches);
   const treeLeaves = batch(sphereGeometry, foliageMaterial, foliage);
   treeLeaves.castShadow=false;
+  const leafCardMaterial=material('leaf-cards','#739069',{side:THREE.DoubleSide,roughness:1});
+  const leafCardItems=[];
+  for(const [x,z,size] of treeSpots){
+    const h=size*2.55;
+    for(let j=0;j<165;j++){
+      const angle=range(0,Math.PI*2),radius=Math.sqrt(random())*size*1.65;
+      const height=h+size*range(0.15,1.35);
+      leafCardItems.push({p:[x+Math.cos(angle)*radius,height,z+Math.sin(angle)*radius],s:[size*range(0.10,0.24),size*range(0.08,0.18),1],r:[range(-1.1,1.1),angle,range(-1.1,1.1)],c:['#b5c399','#9daf8d','#c2c9a4','#879f77'][j%4]});
+    }
+  }
+  const leafCardMesh=batch(geometry('leaf-card',()=>new THREE.PlaneGeometry(1,1)),leafCardMaterial,leafCardItems,world,false);
   const treeFruit = batch(icoGeometry, fruitMaterial, fruits);
   const treeSnow = batch(icoGeometry, snowMaterial, snowCaps);
   treeSnow.visible = false;
@@ -451,11 +462,11 @@ export function createWorld(container, { onSelect } = {}) {
   bladeGeo.setAttribute('position', new THREE.Float32BufferAttribute([-0.065, 0, 0, 0.065, 0, 0, 0.015, 0.5, 0], 3));
   bladeGeo.computeVertexNormals();
   const grasses = [];
-  for (let i = 0; i < 1350; i++) {
-    const x = range(-15.7, 15.7);
-    const z = range(-11.4, 11.4);
+  for (let i = 0; i < 3600; i++) {
+    const x = range(-48, 48);
+    const z = range(-36, 36);
     if ((x + 8.8) ** 2 / 12 + (z - 7.4) ** 2 / 4.5 < 1 || (x < -6.1 && x > -12 && z > -4.6 && z < 3.5)) continue;
-    if (bedDefinitions.some(b => (x - b.x) ** 2 / (b.rx * b.rx) + (z - b.z) ** 2 / (b.rz * b.rz) < 1.25)) continue;
+    if (bedDefinitions.some(b => Math.abs(x-b.x)<b.rx*1.08 && Math.abs(z-b.z)<b.rz*1.08)) continue;
     grasses.push({ p: [x, 0.01, z], s: [range(0.5, 1.2), range(0.23, 0.9), range(0.7, 1.1)], r: [0, range(0, 6.28), range(-0.12, 0.12)], c: new THREE.Color().setHSL(0.17, 0.07, range(0.75, 1)) });
   }
   const grassBlades = batch(bladeGeo, bladeMaterial, grasses, world, false);
@@ -815,10 +826,12 @@ export function createWorld(container, { onSelect } = {}) {
       grassMaterial.color.set(weather === 'drought' ? '#777a54' : tones.ground);
       bladeMaterial.color.set(weather === 'drought' ? '#74714e' : tones.grass);
       foliageMaterial.color.set(weather === 'drought' ? '#747051' : tones.leaf);
+      leafCardMaterial.color.set(weather === 'drought' ? '#777554' : tones.leaf);
       stemMaterial.color.set(weather === 'drought' ? '#6c7051' : '#4b7147');
       fruitMaterial.color.set(tones.fruit);
       flowerMaterial.color.set(weather === 'drought' ? '#c5bba6' : '#e9e9dc');
       treeSnow.visible = winter;
+      leafCardMesh.visible = !winter;
       hiveSnow.visible = winter && !detailMode;
       groundSnow.visible = winter;
       treeFruit.visible = !winter;
