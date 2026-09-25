@@ -140,7 +140,7 @@ function foodDay(state, food, p, day, options) {
   const brood = sum(state.B) + sum(state.DB);
   const competition = 1 - 0.12 * habitat.wildPollinators;
   const forage = state.F * season.activity * habitat.flightWeather * habitat.flowerResource * competition;
-  const nectarCollected = forage * 0.02 * habitat.nectarFactor;
+  const nectarCollected = forage * 0.021 * habitat.nectarFactor;
   const pollenCollected = forage * 0.008 * habitat.pollenFactor;
   const nectarNeeded = adults / 1000 * (0.28 + 0.72 * season.activity) + brood / 1000 * 0.35;
   const pollenNeeded = brood / 1000 * 0.65 + sum(state.H) / 1000 * season.activity * 0.13;
@@ -148,7 +148,10 @@ function foodDay(state, food, p, day, options) {
   const pollenAvailable = food.pollen + pollenCollected;
   const nectarAdequacy = nectarNeeded > 0 ? clamp(nectarAvailable / nectarNeeded, 0, 1) : 1;
   const pollenAdequacy = pollenNeeded > 0 ? clamp(pollenAvailable / pollenNeeded, 0, 1) : 1;
-  const nutritionFactor = clamp(0.35 + 0.65 * pollenAdequacy, 0.35, 1);
+  // Habitat quality proxies pollen diversity as well as quantity; this is an
+  // explicit scenario assumption, not a fitted dose-response relationship.
+  const quality = clamp(0.8 + 0.2 * clamp(numeric(options.habitat, 0.7), 0.2, 1.2) / 0.7, 0.65, 1.12);
+  const nutritionFactor = clamp((0.35 + 0.65 * pollenAdequacy) * quality, 0.25, 1.12);
   const layingFactor = Math.min(nectarAdequacy, pollenAdequacy);
   return {
     ...habitat, nectarCollected, pollenCollected, nectarNeeded, pollenNeeded,
@@ -187,9 +190,9 @@ function stepState(state, p, time, ecology = null) {
   const nextBirth = acceptedLaying(p, state, time + 1, ecology?.layingFactor ?? 1);
   const se = p.eggSurvival ** (1 / 3);
   const effectiveNutrition = p.nutrition * (ecology?.nutritionFactor ?? 1);
-  const sb = (p.broodSurvival * effectiveNutrition) ** (1 / 18);
+  const sb = clamp(p.broodSurvival * effectiveNutrition, 0, 1) ** (1 / 18);
   // Drone brood duration 21 days after hatching. Same stage survival is an assumption.
-  const sd = (p.broodSurvival * effectiveNutrition) ** (1 / 21);
+  const sd = clamp(p.broodSurvival * effectiveNutrition, 0, 1) ** (1 / 21);
   const E = advanceCohorts(state.E, nextBirth.accepted * p.workerRatio, se);
   const DE = advanceCohorts(state.DE, nextBirth.accepted * (1 - p.workerRatio), se);
   const B = advanceCohorts(state.B, E.matured, sb);
