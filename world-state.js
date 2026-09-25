@@ -121,10 +121,9 @@ function smoothstep(value) {
 }
 
 /**
- * Pure mapping from the existing population model to a 3D world frame.
- * `weather` is an illustrative daily foraging multiplier, not population
- * feedback. Existing model counts are never changed. Farm weather and the
- * selected visual weather are each applied once to daily visit supply.
+ * Pure mapping from daily population and optional ecological rows to a 3D
+ * world frame. Legacy rows retain their illustrative weather multiplier;
+ * ecological rows use the modelled day's flight conditions exactly once.
  *
  * Rendered bees are a capped representative sample, not individual colony
  * members. Daylight controls visible flying bees; daily supply remains a
@@ -156,8 +155,12 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
   const seasonalActivity = clamp(interpolate('activity'), 0, 1);
   const selectedWeather = Object.hasOwn(WEATHER, weather) ? weather : 'clear';
   const conditions = WEATHER[selectedWeather];
+  const hasEcology = Number.isFinite(Number(left.nectarStore));
+  const flightWeather = hasEcology ? clamp(interpolate('flightWeather'), 0, 1) : conditions.activity;
+  const rainyDay = hasEcology ? Boolean(left.rainyDay) : selectedWeather === 'rain';
+  const renderWeather = rainyDay ? 'rain' : selectedWeather === 'drought' ? 'drought' : 'clear';
   const daylight = hour > 6 && hour < 18 ? Math.sin(Math.PI * (hour - 6) / 12) ** 1.3 : 0;
-  const activity = seasonalActivity * daylight * conditions.activity;
+  const activity = seasonalActivity * daylight * flightWeather;
   const activeForagers = foragers * activity;
   const beeCount = Math.round(clamp(activeForagers / 60, 0, 160));
 
@@ -174,11 +177,11 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
   const edgeDays = Math.min(3, options.bloomDays / 3);
   const bloomShape = options.bloomDays === YEAR_DAYS ? 1
     : smoothstep(continuousBloomOffset / edgeDays) * smoothstep((options.bloomDays - continuousBloomOffset) / edgeDays);
-  const flowerCoverage = inBloom ? bloomShape * conditions.flower : 0;
+  const flowerCoverage = inBloom ? bloomShape * (hasEcology ? clamp(interpolate('cropBloom') + 0.35, 0, 1) : conditions.flower) : 0;
   const dailyDemand = inBloom
     ? options.area * options.flowerDensity * options.visitsPerFlower * (1 - options.naturalShare) * (1 + options.reserve)
     : 0;
-  const potentialDailySupply = foragers * seasonalActivity * options.weather * conditions.activity
+  const potentialDailySupply = foragers * seasonalActivity * options.weather * flightWeather
     * options.cropShare * options.visitsPerBee * options.efficiency;
   const dailySupply = inBloom ? potentialDailySupply : 0;
   const pollinationRate = !inBloom ? null : dailyDemand === 0 ? 1 : clamp(dailySupply / dailyDemand, 0, 1);
@@ -190,14 +193,26 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
     speed: SPEEDS.has(clock.speed) ? clock.speed : 1,
     loop: Boolean(clock.loop),
     weather: selectedWeather,
-    weatherLabel: conditions.label,
-    weatherFactor: conditions.activity,
+    renderWeather,
+    weatherLabel: hasEcology ? (rainyDay ? '비 오는 날' : selectedWeather === 'drought' ? '건조한 날' : '맑거나 흐림') : conditions.label,
+    weatherFactor: flightWeather,
     seasonalActivity, daylight, activity, activeForagers, beeCount,
     flowerCoverage, inBloom,
+    wildflowerCoverage: hasEcology ? clamp(interpolate('wildflower'), 0, 1) : 0.4,
+    flowerResource: hasEcology ? clamp(interpolate('flowerResource'), 0, 1) : 0,
+    wildPollinators: hasEcology ? clamp(interpolate('wildPollinators'), 0, 1) : 0,
+    nectarStore: hasEcology ? interpolate('nectarStore') : null,
+    pollenStore: hasEcology ? interpolate('pollenStore') : null,
+    nectarCollected: hasEcology ? interpolate('nectarCollected') : null,
+    pollenCollected: hasEcology ? interpolate('pollenCollected') : null,
+    nectarAdequacy: hasEcology ? clamp(interpolate('nectarAdequacy'), 0, 1) : null,
+    pollenAdequacy: hasEcology ? clamp(interpolate('pollenAdequacy'), 0, 1) : null,
     adults, foragers, hiveBees, eggs, brood, drones,
     viableLaying, laying, emerged, droneEmerged, recruits, deaths, care, foragerMortality,
     pollinationRate, dailyDemand, dailySupply, potentialDailySupply,
     effectiveVisits: dailySupply,
-    weatherExplanation: '선택한 날씨는 시각화와 당일 채집 능력의 가정입니다. 군집 개체수에는 되먹임하지 않습니다.',
+    weatherExplanation: hasEcology
+      ? '선택한 기후 시나리오는 연중 비행·꽃 자원·먹이 저장·육아와 생존에 영향을 줍니다. 계수는 현장 보정값이 아닙니다.'
+      : '선택한 날씨는 시각화와 당일 채집 능력의 가정입니다. 군집 개체수에는 되먹임하지 않습니다.',
   };
 }

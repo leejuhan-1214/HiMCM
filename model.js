@@ -101,11 +101,63 @@ export function advanceCohorts(cohorts, newborns, survival) {
   };
 }
 
-function acceptedLaying(p, state, day) {
+function acceptedLaying(p, state, day, foodFactor = 1) {
   const H = sum(state.H);
   const potential = seasonal(day, p).laying;
   const care = H > 0 ? H / (H + p.careHalf) : 0;
-  return { potential, accepted: potential * care, care };
+  return { potential, accepted: potential * care * foodFactor, care };
+}
+
+// An explicitly hypothetical landscape extension. Stores are ration-equivalents,
+// not measured kilograms: one unit feeds 1,000 summer adults for one day.
+// The forcing is smooth and deterministic so seeking to a date is reproducible.
+function landscape(day, options = {}) {
+  const doy = ((day % YEAR) + YEAR) % YEAR + 1;
+  const regime = ['typical', 'wet', 'drought'].includes(options.weatherRegime) ? options.weatherRegime : 'typical';
+  const habitat = clamp(numeric(options.habitat, 0.7), 0.2, 1.2);
+  const bloomStart = clamp(numeric(options.bloomStart, 120), 1, 365);
+  const bloomDays = clamp(numeric(options.bloomDays, 21), 1, 365);
+  const offset = ((doy - bloomStart + YEAR) % YEAR);
+  const cropBloom = offset < bloomDays ? Math.sin(Math.PI * offset / bloomDays) ** 0.65 : 0;
+  const spring = Math.exp(-(((doy - 125) / 67) ** 2));
+  const summer = Math.exp(-(((doy - 225) / 82) ** 2));
+  const autumn = Math.exp(-(((doy - 290) / 43) ** 2));
+  const wildflower = doy < 60 || doy > 335 ? 0 : clamp((0.04 + 0.54 * spring + 0.38 * summer + 0.15 * autumn) * habitat, 0, 1);
+  const flowerResource = clamp(wildflower + cropBloom * 0.28, 0, 1);
+  const weatherPulse = Math.sin(doy * 0.19 + 1.4) + 0.45 * Math.sin(doy * 0.61);
+  const rainyDay = regime === 'wet' ? weatherPulse > 0.35 : regime === 'drought' ? weatherPulse > 1.05 : weatherPulse > 0.85;
+  const flightWeather = rainyDay ? 0.55 : regime === 'wet' ? 0.93 : regime === 'drought' ? 0.96 : 1;
+  const nectarFactor = regime === 'drought' ? 0.82 : regime === 'wet' ? 0.94 : 1;
+  const pollenFactor = regime === 'drought' ? 0.87 : regime === 'wet' ? 0.95 : 1;
+  const wildPollinators = clamp((0.12 + 0.6 * spring + 0.42 * summer) * flowerResource, 0, 1);
+  return { flowerResource, wildflower, cropBloom, flightWeather, nectarFactor, pollenFactor, rainyDay, wildPollinators, regime };
+}
+
+function foodDay(state, food, p, day, options) {
+  const habitat = landscape(day, options);
+  const season = seasonal(day, p);
+  const adults = sum(state.H) + state.F + state.D;
+  const brood = sum(state.B) + sum(state.DB);
+  const competition = 1 - 0.12 * habitat.wildPollinators;
+  const forage = state.F * season.activity * habitat.flightWeather * habitat.flowerResource * competition;
+  const nectarCollected = forage * 0.02 * habitat.nectarFactor;
+  const pollenCollected = forage * 0.008 * habitat.pollenFactor;
+  const nectarNeeded = adults / 1000 * (0.28 + 0.72 * season.activity) + brood / 1000 * 0.35;
+  const pollenNeeded = brood / 1000 * 0.65 + sum(state.H) / 1000 * season.activity * 0.13;
+  const nectarAvailable = food.nectar + nectarCollected;
+  const pollenAvailable = food.pollen + pollenCollected;
+  const nectarAdequacy = nectarNeeded > 0 ? clamp(nectarAvailable / nectarNeeded, 0, 1) : 1;
+  const pollenAdequacy = pollenNeeded > 0 ? clamp(pollenAvailable / pollenNeeded, 0, 1) : 1;
+  const nutritionFactor = clamp(0.35 + 0.65 * pollenAdequacy, 0.35, 1);
+  const layingFactor = Math.min(nectarAdequacy, pollenAdequacy);
+  return {
+    ...habitat, nectarCollected, pollenCollected, nectarNeeded, pollenNeeded,
+    nectarAdequacy, pollenAdequacy, nutritionFactor, layingFactor,
+    food: {
+      nectar: clamp(nectarAvailable - nectarNeeded, 0, 2500),
+      pollen: clamp(pollenAvailable - pollenNeeded, 0, 360),
+    },
+  };
 }
 
 function initialize(p) {
@@ -130,13 +182,14 @@ function totals(state) {
   return { eggs, brood, hiveBees, foragers: state.F, drones: state.D, adults, total: eggs + brood + adults };
 }
 
-function stepState(state, p, time) {
+function stepState(state, p, time, ecology = null) {
   const season = seasonal(time, p);
-  const nextBirth = acceptedLaying(p, state, time + 1);
+  const nextBirth = acceptedLaying(p, state, time + 1, ecology?.layingFactor ?? 1);
   const se = p.eggSurvival ** (1 / 3);
-  const sb = (p.broodSurvival * p.nutrition) ** (1 / 18);
+  const effectiveNutrition = p.nutrition * (ecology?.nutritionFactor ?? 1);
+  const sb = (p.broodSurvival * effectiveNutrition) ** (1 / 18);
   // Drone brood duration 21 days after hatching. Same stage survival is an assumption.
-  const sd = (p.broodSurvival * p.nutrition) ** (1 / 21);
+  const sd = (p.broodSurvival * effectiveNutrition) ** (1 / 21);
   const E = advanceCohorts(state.E, nextBirth.accepted * p.workerRatio, se);
   const DE = advanceCohorts(state.DE, nextBirth.accepted * (1 - p.workerRatio), se);
   const B = advanceCohorts(state.B, E.matured, sb);
@@ -145,8 +198,10 @@ function stepState(state, p, time) {
   const fraction = H + state.F > 0 ? state.F / (H + state.F) : 0;
   const social = Math.max(0, 1 - p.socialInhibition * fraction / 0.35);
   // Daily geometric hazards: mean residence time 1/mu, not a deterministic lifetime.
-  const muH = season.activity * p.hiveMortality + (1 - season.activity) / p.winterLife;
-  const muF = season.activity / p.summerForagerLife + (1 - season.activity) / p.winterLife;
+  const starvation = ecology ? (1 - ecology.nectarAdequacy) * 0.035 : 0;
+  const badFlight = ecology ? ((1 - ecology.flightWeather) * 0.017 + (ecology.regime === 'drought' ? 0.003 : 0)) * season.activity : 0;
+  const muH = clamp(season.activity * p.hiveMortality + (1 - season.activity) / p.winterLife + starvation, 0, 1);
+  const muF = clamp(season.activity / p.summerForagerLife + (1 - season.activity) / p.winterLife + starvation + badFlight, 0, 1);
   // Assumed drone mortality incl. autumn/winter exclusion; not a measured coefficient.
   const muD = season.activity / 30 + (1 - season.activity) * 0.12;
   const nextH = new Float64Array(H_AGES);
@@ -179,30 +234,44 @@ function row(state, day, flows = {}) {
   return { day, ...totals(state), ...flows };
 }
 
-export function simulate(input = {}) {
+export function simulate(input = {}, options = {}) {
   const p = normalizeParams(input);
+  const ecological = Boolean(options.ecology);
+  const ecologyOptions = typeof options.ecology === 'object' ? options.ecology : {};
   const burnin = p.burninYears * YEAR;
   const length = p.years * YEAR;
   let state = initialize(p);
+  let food = { nectar: 950, pollen: 180 };
   let maxMassBalanceError = 0;
   let lastFlows = { deaths: 0, emerged: 0, droneEmerged: 0, recruits: 0, ...acceptedLaying(p, state, 0) };
   let previousYear = [];
   const days = [];
   for (let t = 0; t <= burnin + length; t++) {
     const seas = seasonal(t, p);
-    const birth = acceptedLaying(p, state, t);
+    const environment = ecological ? foodDay(state, food, p, t, ecologyOptions) : null;
+    const birth = acceptedLaying(p, state, t, environment?.layingFactor ?? 1);
     const current = {
       ...row(state, t - burnin, lastFlows), doy: seas.doy,
       activity: seas.activity, activeForagers: state.F * seas.activity,
       laying: t === 0 ? birth.potential : lastFlows.laying,
       viableLaying: t === 0 ? birth.accepted : lastFlows.viableLaying,
       workerAdults: sum(state.H) + state.F,
+      ...(environment ? {
+        nectarStore: food.nectar, pollenStore: food.pollen,
+        nectarCollected: environment.nectarCollected, pollenCollected: environment.pollenCollected,
+        nectarAdequacy: environment.nectarAdequacy, pollenAdequacy: environment.pollenAdequacy,
+        nutritionFactor: environment.nutritionFactor, flowerResource: environment.flowerResource,
+        wildflower: environment.wildflower, cropBloom: environment.cropBloom,
+        wildPollinators: environment.wildPollinators,
+        flightWeather: environment.flightWeather, rainyDay: environment.rainyDay,
+      } : {}),
     };
     if (t >= burnin - YEAR && t < burnin) previousYear.push(current.adults);
     if (t >= burnin) days.push(current);
     if (t === burnin + length) break;
-    const step = stepState(state, p, t);
+    const step = stepState(state, p, t, environment);
     state = step.state;
+    if (environment) food = environment.food;
     lastFlows = step.flows;
     maxMassBalanceError = Math.max(maxMassBalanceError, Math.abs(step.flows.massBalanceError));
   }
@@ -214,7 +283,9 @@ export function simulate(input = {}) {
     : null;
   const warnings = [
     '북반구 온대의 가상 계절 시나리오입니다. 현장 자료로 보정·검증된 예측이 아닙니다.',
-    '여왕 1마리, 분봉·질병·공간 제한·먹이 저장 동학을 제외했습니다. 영양 계수는 시나리오 가정입니다.',
+    ecological
+      ? '여왕 1마리, 분봉·질병·공간 제한은 제외했습니다. 꽃·날씨·먹이 저장과 영양 피드백은 미보정 시나리오 가정입니다.'
+      : '여왕 1마리, 분봉·질병·공간 제한·먹이 저장 동학을 제외했습니다. 영양 계수는 시나리오 가정입니다.',
   ];
   if (cycleDifference !== null && cycleDifference > 0.05) warnings.push('이전 해와 성충 수 차이가 최대치의 5%를 넘습니다. 예열 후에도 주기 수렴이 확인되지 않았습니다.');
   if (peak.adults > 80000) warnings.push('성충 수가 문제의 참고 범위 80,000마리를 넘습니다. 공간 제한·분봉을 제외한 가정을 점검하세요.');
@@ -230,6 +301,7 @@ export function simulate(input = {}) {
       peakDay: peak.doy,
     },
     params: p,
+    ecology: ecological ? { ...ecologyOptions, storeUnit: '1,000 summer-adult daily ration equivalent', calibrated: false } : null,
     diagnostics: {
       maxMassBalanceError, cycleDifference, converged: cycleDifference === null ? null : cycleDifference <= 0.05,
       warmupDays: burnin, warnings,

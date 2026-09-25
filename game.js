@@ -26,8 +26,23 @@ const paths = {
 };
 const icon = n => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${paths[n]||paths.world}</svg>`;
 $$('[data-icon]').forEach(el=>el.innerHTML=icon(el.dataset.icon));
-let params={...DEFAULTS}, farm={...POLLINATION_DEFAULTS}, weather='clear', scenario='baseline';
-let result=simulate(params), world, frame, selection=null, routes=false, detail=false, toastTimer, lastTime=0, lastUI=0, rafId=0, disposed=false, returnToPlay=false, snapshotURL=null;
+$('.world-intro h1').innerHTML='벌통과 들판의<br>한 해.';
+$('.world-intro .overline').textContent='FIELD OBSERVATION · ONE COLONY';
+$('.world-intro p').innerHTML='꽃이 피고, 벌이 먹이를 모으고, 새 일벌이 태어납니다.<br>계절과 시간을 움직여 연결된 변화를 관찰하세요.';
+$('.environment-panel .panel-note').textContent='평년·다우·가뭄은 하루 날씨가 아닌 연중 기후 시나리오입니다. 꽃 자원, 채집, 먹이 저장, 육아·생존을 함께 다시 계산합니다. 수치는 현장 보정값이 아닙니다.';
+const climateLabels={clear:'평년',rain:'비 많은 해',drought:'가뭄 해'};
+$$('[data-weather]').forEach(button=>{button.lastChild.textContent=climateLabels[button.dataset.weather];});
+$('.hive-processes').insertAdjacentHTML('beforeend','<div><span>꿀 저장</span><b id="detail-nectar">—</b></div><div><span>꽃가루 저장</span><b id="detail-pollen">—</b></div><div><span>주변 꽃 자원</span><b id="detail-resource">—</b></div><div><span>꽃가루 충족</span><b id="detail-nutrition">—</b></div><div><span>야생 수분매개자 활동</span><b id="detail-wild">—</b></div>');
+$('.pollination-status').insertAdjacentHTML('beforeend','<p id="world-resource" class="world-resource" aria-live="off">꽃 자원과 저장량을 계산하는 중입니다.</p>');
+$('.quality-setting').insertAdjacentHTML('beforebegin','<div class="setting"><label for="habitat-quality">주변 꽃 서식지 <b id="habitat-quality-label">70%</b></label><input id="habitat-quality" type="range" min="50" max="110" value="70" step="5"><p class="setting-hint">농지 가장자리·야생화·꽃나무가 제공하는 먹이의 가상 상대량</p></div>');
+$('.honesty-note strong').textContent='자연의 연결을 단순화한 실험 모델입니다.';
+$('.honesty-note p').textContent='꽃 자원과 연중 기후가 채집·먹이 저장·육아·생존에 영향을 줍니다. 저장량은 실제 kg이 아닌 상대적인 먹이 단위입니다. 화면의 벌·꽃·벌집은 표본이며, 지형은 실제 20에이커 측량 지도가 아닙니다. 계수는 현장 자료로 보정되지 않았습니다.';
+$('#results-dialog .panel-note').textContent='한 군집의 일별 기대 개체수입니다. 선택한 연중 기후·서식지 조건이 꽃 자원과 먹이 저장을 거쳐 다음 세대에 영향을 줍니다. 현장 관측으로 보정된 예측은 아닙니다.';
+$('.world-footnote').textContent='HiMCM 2022 · 가상 온대 농장 관찰 장면 · 먹이 계수 미보정 · 벌과 꽃은 대표 표본';
+let params={...DEFAULTS}, farm={...POLLINATION_DEFAULTS}, weather='clear', scenario='baseline', habitat=0.7;
+const ecologyOptions=()=>({weatherRegime:{clear:'typical',rain:'wet',drought:'drought'}[weather],bloomStart:farm.bloomStart,bloomDays:farm.bloomDays,habitat});
+const runEcology=()=>simulate(params,{ecology:ecologyOptions()});
+let result=runEcology(), world, frame, selection=null, routes=false, detail=false, toastTimer, lastTime=0, lastUI=0, rafId=0, disposed=false, returnToPlay=false, snapshotURL=null;
 const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const timeline=createTimeline({day:130,hour:11,speed:.25,playing:!reduced});
 function toast(text){$('#world-toast').textContent=text;$('#world-toast').classList.add('visible');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('#world-toast').classList.remove('visible'),3300);}
@@ -67,6 +82,11 @@ function updateDetailUI(){
   $('#detail-deaths').textContent=`${fmt(frame.deaths)}마리`;
   $('#detail-care').textContent=`${fmt(frame.care*100)}%`;
   $('#detail-care-fill').style.width=`${frame.care*100}%`;
+  $('#detail-nectar').textContent=frame.nectarStore==null?'—':`${fmt(frame.nectarStore)} 단위`;
+  $('#detail-pollen').textContent=frame.pollenStore==null?'—':`${fmt(frame.pollenStore)} 단위`;
+  $('#detail-resource').textContent=`${fmt(frame.flowerResource*100)}%`;
+  $('#detail-nutrition').textContent=frame.pollenAdequacy==null?'—':`${fmt(frame.pollenAdequacy*100)}%`;
+  $('#detail-wild').textContent=`${fmt(frame.wildPollinators*100)}% 지수`;
   const story=frame.season==='winter'?'월동기에는 여왕의 산란과 채집 전환이 줄고, 긴 수명의 겨울벌이 군집을 지탱합니다.':frame.viableLaying>1200?'여왕의 산란이 활발합니다. 육아벌이 알과 유충을 돌보고 새 일벌이 계속 우화합니다.':frame.recruits>frame.emerged?'내근벌에서 채집벌로 넘어가는 수가 많아, 벌통 밖 노동 비중이 커지는 시기입니다.':'군집이 다음 세대의 알과 유충을 키우며 채집 인력을 보충하고 있습니다.';
   $('#detail-story').textContent=story;
 }
@@ -78,7 +98,8 @@ function updateUI(){
   $('#season-icon').textContent={spring:'✿',summer:'☀',autumn:'❧',winter:'❄'}[frame.season];
   $('#world-pollination').textContent=frame.inBloom?`${fmt(frame.pollinationRate*100)}%`:'개화 전후';
   $('#supply-progress').style.width=`${(frame.pollinationRate||0)*100}%`;
-  $('#world-status').textContent=!frame.inBloom?'이 농장의 목표 작물은 개화기가 아니에요.':frame.daylight===0?'밤에는 비행을 쉬어요. 위 비율은 하루 공급 기준이에요.':`한 벌통이 하루 수요의 ${fmt(frame.pollinationRate*100)}%를 담당할 수 있어요.`;
+  $('#world-status').textContent=!frame.inBloom?'작물 개화 전후에도 야생화·꽃나무의 먹이 자원은 변합니다.':frame.daylight===0?'밤에는 비행을 쉬어요. 위 비율은 하루 공급 기준이에요.':`한 벌통이 하루 수요의 ${fmt(frame.pollinationRate*100)}%를 담당할 수 있어요.`;
+  $('#world-resource').textContent=`꽃 자원 ${fmt(frame.flowerResource*100)}% · 꽃가루 저장 ${fmt(frame.pollenStore)} 단위`;
   $('#world-timeline').value=frame.elapsedDays;
   $('#spark-cursor')?.setAttribute('x1',String(Math.min(180,frame.elapsedDays/365*180)));$('#spark-cursor')?.setAttribute('x2',String(Math.min(180,frame.elapsedDays/365*180)));
   document.body.dataset.night=String(frame.daylight<.05);
@@ -112,7 +133,7 @@ function showResults(){
   saveSnapshot();$('#results-dialog').showModal();
 }
 function saveSnapshot(){
-  const data={version:'2.1.0',timestamp:new Date().toISOString(),params,farm,timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Counts interpolate a deterministic daily cohort model.','3D bees and comb cells are illustrative samples, not individually modelled colony members.','Weather scales same-day foraging, not future colony demographics.']};
+  const data={version:'2.2.0',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Counts interpolate a deterministic daily cohort model with hypothetical floral-resource and food-store feedback.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
   if(snapshotURL)URL.revokeObjectURL(snapshotURL);snapshotURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));$('#export-world').href=snapshotURL;
   let preview=$('#snapshot-preview');if(!preview){preview=document.createElement('details');preview.id='snapshot-preview';preview.innerHTML='<summary>다운로드가 시작되지 않나요? JSON 내용 보기</summary><textarea id="snapshot-json" readonly aria-label="현재 시점 JSON 데이터" rows="7"></textarea>';$('#results-dialog').append(preview);}$('#snapshot-json').value=JSON.stringify(data,null,2);
 }
@@ -120,7 +141,7 @@ document.addEventListener('click',event=>{
   const b=event.target.closest('button');if(!b)return;
   if(b.dataset.speed){timeline.setSpeed(Number(b.dataset.speed));updateControls();return;}
   if(b.dataset.camera){if(detail)detailView(false,false);world?.setCamera(b.dataset.camera);$$('[data-camera]').forEach(el=>{const a=el===b;el.classList.toggle('selected',a);el.setAttribute('aria-pressed',String(a));});if(b.dataset.camera==='follow'&&frame.beeCount===0)toast('지금 벌들이 쉬고 있어요. 낮이나 개화기로 이동해 보세요.');return;}
-  if(b.dataset.weather){weather=b.dataset.weather;$$('[data-weather]').forEach(el=>{el.classList.toggle('selected',el===b);el.setAttribute('aria-pressed',String(el===b));});refreshFrame();updateUI();return;}
+  if(b.dataset.weather){weather=b.dataset.weather;$$('[data-weather]').forEach(el=>{el.classList.toggle('selected',el===b);el.setAttribute('aria-pressed',String(el===b));});result=runEcology();makeSparkline();refreshFrame();updateUI();toast('기후 시나리오를 바꿔 1년의 군집과 먹이 저장을 다시 계산했어요.');return;}
   switch(b.id){
     case 'world-play':togglePlay();break;
     case 'restart-button':seek(0,12);toast('1월 1일로 돌아왔어요.');break;
@@ -142,9 +163,10 @@ document.addEventListener('click',event=>{
   }
 });
 $('#world-timeline').addEventListener('input',e=>seek(Number(e.target.value),0));
-$('#bloom-start').addEventListener('input',e=>{farm.bloomStart=Number(e.target.value);updateBloomUI();refreshFrame();updateUI();});
-$('#bloom-duration').addEventListener('input',e=>{farm.bloomDays=Number(e.target.value);updateBloomUI();refreshFrame();updateUI();});
-$('#world-scenario').addEventListener('change',e=>{scenario=e.target.value;params={...PRESETS[scenario]};result=simulate(params);makeSparkline();refreshFrame();updateUI();updateLabLink();toast('군집 조건을 바꾸고 같은 시간에서 비교합니다.');});
+$('#bloom-start').addEventListener('input',e=>{farm.bloomStart=Number(e.target.value);updateBloomUI();result=runEcology();makeSparkline();refreshFrame();updateUI();});
+$('#bloom-duration').addEventListener('input',e=>{farm.bloomDays=Number(e.target.value);updateBloomUI();result=runEcology();makeSparkline();refreshFrame();updateUI();});
+$('#habitat-quality').addEventListener('input',e=>{habitat=Number(e.target.value)/100;$('#habitat-quality-label').textContent=`${e.target.value}%`;result=runEcology();makeSparkline();refreshFrame();updateUI();});
+$('#world-scenario').addEventListener('change',e=>{scenario=e.target.value;params={...PRESETS[scenario]};result=runEcology();makeSparkline();refreshFrame();updateUI();updateLabLink();toast('군집 조건을 바꾸고 같은 시간에서 비교합니다.');});
 $('#world-quality').addEventListener('change',e=>{world?.setQuality(e.target.value);});
 document.addEventListener('keydown',e=>{
   if(e.repeat||e.altKey||e.ctrlKey||e.metaKey||['INPUT','SELECT','TEXTAREA','BUTTON','A'].includes(document.activeElement?.tagName)||document.querySelector('dialog[open]'))return;
@@ -167,11 +189,12 @@ async function start(){
     // Optional inherited research settings are numeric-only and bounded.
     const inherited=new URLSearchParams(location.hash.slice(1)).get('experiment');
     if(inherited){const saved=JSON.parse(inherited);if(saved.version==='1.0.0'&&saved.params){
-      params=normalizeParams(saved.params);result=simulate(params);
+      params=normalizeParams(saved.params);
       for(const [key,value] of Object.entries(saved.farm||{}))if(Object.hasOwn(POLLINATION_DEFAULTS,key)&&typeof value==='number'&&Number.isFinite(value))farm[key]=Math.max(0,value);
       for(const key of ['weather','cropShare','efficiency','naturalShare'])farm[key]=Math.min(1,farm[key]);
       farm.bloomStart=Math.max(1,Math.min(365,Math.round(farm.bloomStart)));farm.bloomDays=Math.max(7,Math.min(90,Math.round(farm.bloomDays)));
       farm.area=Math.min(farm.area,202500);farm.flowerDensity=Math.min(farm.flowerDensity,150);farm.visitsPerFlower=Math.min(farm.visitsPerFlower,10);farm.visitsPerBee=Math.min(farm.visitsPerBee,2500);farm.reserve=Math.min(farm.reserve,.5);
+      result=runEcology();
     }}
   }catch{toast('공유 설정을 읽지 못해 기준 군집을 사용합니다.');}
   makeSparkline();updateBloomUI();refreshFrame();updateUI();
