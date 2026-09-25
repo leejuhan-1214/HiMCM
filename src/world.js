@@ -34,10 +34,10 @@ export function createWorld(container, { onSelect } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#cbd4cc');
   scene.fog = new THREE.Fog('#cbd4cc', 65, 150);
-  const camera = new THREE.PerspectiveCamera(39, 1, 0.1, 180);
-  camera.position.set(32, 29, 36);
+  const camera = new THREE.PerspectiveCamera(44, 1, 0.1, 180);
+  camera.position.set(28, 17, 35);
   const controls = new OrbitControls(camera, renderer.domElement);
-  controls.target.set(0, 0.3, 0);
+  controls.target.set(0, 0.8, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.07;
   controls.minDistance = 4.5;
@@ -90,8 +90,18 @@ export function createWorld(container, { onSelect } = {}) {
   const paleWood = material('pale-wood', '#ae9979');
   const bark = material('bark', '#6e604b');
   const grassMaterial = material('grass', '#667c55');
+  const groundCanvas=document.createElement('canvas');groundCanvas.width=256;groundCanvas.height=256;
+  const groundContext=groundCanvas.getContext('2d');
+  if(groundContext){
+    const pixels=groundContext.createImageData(256,256);
+    for(let i=0;i<pixels.data.length;i+=4){const n=Math.floor(random()*28),soil=random()<0.09;pixels.data[i]=soil?170+n:207+n;pixels.data[i+1]=soil?166+n:213+n;pixels.data[i+2]=soil?151+n:199+n;pixels.data[i+3]=255;}
+    groundContext.putImageData(pixels,0,0);
+  }
+  const groundTexture=track(new THREE.CanvasTexture(groundCanvas));
+  groundTexture.colorSpace=THREE.SRGBColorSpace;groundTexture.wrapS=THREE.RepeatWrapping;groundTexture.wrapT=THREE.RepeatWrapping;groundTexture.repeat.set(28,28);
+  grassMaterial.map=groundTexture;grassMaterial.needsUpdate=true;
   const bladeMaterial = material('blades', '#536f44', { side: THREE.DoubleSide });
-  const foliageMaterial = material('foliage', '#4e6c4e');
+  const foliageMaterial = material('foliage', '#6b8361');
   const stemMaterial = material('stems', '#4b7147');
   const flowerMaterial = material('flowers', '#ffffff');
   const centerMaterial = material('flower-center', '#f6c958', { emissive: '#e8b14a', emissiveIntensity: 0.06 });
@@ -168,6 +178,7 @@ export function createWorld(container, { onSelect } = {}) {
   }
   const patchMesh=batch(geometry('patch',()=>new THREE.CircleGeometry(1,12)),material('patch','#ffffff',{side:THREE.DoubleSide,roughness:1}),soilPatches,world,false);
   patchMesh.receiveShadow=false;
+  patchMesh.visible=false;
 
   const path = new THREE.CatmullRomCurve3([
     new THREE.Vector3(-8, 0.025, -1), new THREE.Vector3(-6.5, 0.025, 3.6),
@@ -178,6 +189,7 @@ export function createWorld(container, { onSelect } = {}) {
   const pathGeo = track(new THREE.TubeGeometry(path, 100, 0.65, 8, false));
   const walkway = mesh(pathGeo, material('path', '#8b876a'), [0, -0.025, 0], [1, 0.025, 1]);
   walkway.castShadow = false;
+  walkway.visible=false;
   const stepping = [];
   for (let i = 0; i < 25; i++) {
     const p = path.getPoint(i / 24);
@@ -197,7 +209,7 @@ export function createWorld(container, { onSelect } = {}) {
     const side = i % 2 ? 1 : -1;
     shore.push({ p: [side * range(14.2, 16), range(0.05, 0.18), range(-9.5, 10.2)], s: [range(0.18, 0.55), range(0.15, 0.44), range(0.22, 0.5)], r: [0, range(0, 6.2), 0], c: '#bbc2a8' });
   }
-  batch(icoGeometry, material('stones', '#ffffff'), shore);
+  // Avoid a decorative ring of bright stones around the water edge.
   const lilyPads = [];
   for (let i = 0; i < 8; i++) lilyPads.push({ p: [-9.4 + range(-1.6, 1.7), 0.07, 7.5 + range(-0.8, 0.7)], s: [range(0.15, 0.35), 0.018, range(0.15, 0.3)], r: [0, range(0, 6), 0] });
   batch(sphereGeometry, material('lily', '#79ad83'), lilyPads, world, false);
@@ -328,18 +340,20 @@ export function createWorld(container, { onSelect } = {}) {
       const a = j * Math.PI * 2 / 3;
       branches.push({ p: [x + Math.cos(a) * size * 0.36, h * 0.7, z + Math.sin(a) * size * 0.36], s: [size * 0.1, size * 1.25, size * 0.1], r: [Math.sin(a) * 0.72, 0, -Math.cos(a) * 0.72] });
     }
-    for (let j = 0; j < 5; j++) {
-      const a = j * Math.PI * 2 / 5;
-      const p = [x + Math.cos(a) * size * 0.8, h + (j === 0 ? 0.95 : 0.25) * size, z + Math.sin(a) * size * 0.8];
-      const s = [size * range(1.05, 1.4), size * range(1.0, 1.3), size * range(1.0, 1.35)];
+    for (let j = 0; j < 19; j++) {
+      const a = j * 2.39996;
+      const radius=Math.sqrt((j+0.5)/19)*size*1.25;
+      const p = [x + Math.cos(a) * radius, h + (0.45 + range(-0.28,0.45)) * size, z + Math.sin(a) * radius];
+      const s = [size * range(0.36, 0.65), size * range(0.43, 0.75), size * range(0.38, 0.68)];
       foliage.push({ p, s, r: [0.2, range(0, 3), 0.1], c: new THREE.Color().setHSL(range(0.26, 0.34), 0.21, range(0.75, 0.96)) });
       snowCaps.push({ p: [p[0], p[1] + s[1] * 0.7, p[2]], s: [s[0] * 0.85, s[1] * 0.32, s[2] * 0.85] });
-      for (let k = 0; k < 2; k++) fruits.push({ p: [p[0] + range(-0.6, 0.6), p[1] + range(-0.5, 0.5), p[2] + s[2] * 0.65], s: [0.13 * size, 0.15 * size, 0.13 * size] });
+      if(j%4===0)fruits.push({ p: [p[0] + range(-0.16, 0.16), p[1] + range(-0.15, 0.15), p[2] + s[2] * 0.65], s: [0.08 * size, 0.09 * size, 0.08 * size] });
     }
   }
   batch(cylinderGeometry, bark, trunks);
   batch(cylinderGeometry, bark, branches);
   const treeLeaves = batch(sphereGeometry, foliageMaterial, foliage);
+  treeLeaves.castShadow=false;
   const treeFruit = batch(icoGeometry, fruitMaterial, fruits);
   const treeSnow = batch(icoGeometry, snowMaterial, snowCaps);
   treeSnow.visible = false;
@@ -358,20 +372,18 @@ export function createWorld(container, { onSelect } = {}) {
       }
     }
   }
-  fenceRun(-13.8, -11.7, 13.8, -11.7, 17);
-  fenceRun(-15.2, -9, -15.2, 7.5, 10);
-  fenceRun(15.2, -8.5, 15.2, 8.3, 10);
+  fenceRun(-15.8, -12.4, 15.8, -12.4, 17);
   batch(boxGeometry, material('fence', '#d8c49e'), fence);
 
   // Two recognizable flowering crop beds. All positions are pre-seeded.
   const flowerRecords = [];
-  const bedDefinitions = [{ x: 4.5, z: 3.4, rx: 5.0, rz: 2.8, rows: 8, columns: 16 }, { x: 4.8, z: -5.0, rx: 4.3, rz: 2.45, rows: 7, columns: 15 }];
+  const bedDefinitions = [{ x: 5.4, z: 4.0, rx: 6.2, rz: 2.8, rows: 8, columns: 19 }, { x: 5.4, z: -4.1, rx: 6.2, rz: 2.8, rows: 8, columns: 19 }];
   for (let bed = 0; bed < bedDefinitions.length; bed++) {
     const b = bedDefinitions[bed];
     for (let row = 0; row < b.rows; row++) for (let column = 0; column < b.columns; column++) {
       const nx = (column / (b.columns - 1) * 2 - 1);
       const nz = (row / (b.rows - 1) * 2 - 1);
-      if (nx * nx + nz * nz > 1.22) continue;
+      // Managed crop rows are rectangular, with small planting irregularity.
       flowerRecords.push({ x: b.x + nx * b.rx + range(-0.16, 0.16), z: b.z + nz * b.rz + range(-0.12, 0.12), h: range(0.36, 0.74), size: range(0.09, 0.15), color: ['#e6e5d5', '#ded9bc', '#e9d7bd', '#ece7d8'][Math.floor(random() * 4)], bed, turn: range(0, Math.PI * 2) });
     }
   }
@@ -394,6 +406,12 @@ export function createWorld(container, { onSelect } = {}) {
   const leafMesh = batch(sphereGeometry, stemMaterial, leaves, world, false);
   const petalMesh = batch(sphereGeometry, flowerMaterial, petals, world, false);
   const centerMesh = batch(sphereGeometry, centerMaterial, centers, world, false);
+  const soilRows=[];
+  for(const bed of bedDefinitions)for(let row=0;row<bed.rows;row++){
+    const z=bed.z+(row/(bed.rows-1)*2-1)*bed.rz;
+    soilRows.push({p:[bed.x,-0.089,z],s:[bed.rx*2.1,0.005,0.18],c:row%2?'#766a50':'#6d614b'});
+  }
+  batch(boxGeometry,material('crop-soil','#ffffff',{roughness:1}),soilRows,world,false);
   // Semi-natural field margin: varied blooms beyond the crop's short bloom.
   // This is the visual counterpart of the habitat forage term in model.js.
   const wildflowerRecords=[];
@@ -414,9 +432,9 @@ export function createWorld(container, { onSelect } = {}) {
   const wildPetalMesh=batch(sphereGeometry,flowerMaterial,wildPetals,world,false);
   const wildCenterMesh=batch(sphereGeometry,centerMaterial,wildCenters,world,false);
   const shrubs=[];
-  for(let i=0;i<110;i++){
+  for(let i=0;i<50;i++){
     const x=i%2?range(-16,-12):range(12,16),z=range(-11,11);
-    shrubs.push({p:[x,range(0.25,0.48),z],s:[range(0.4,0.9),range(0.4,0.8),range(0.45,0.95)],c:['#4b6547','#586f4d','#62764d'][i%3]});
+    shrubs.push({p:[x,range(0.15,0.32),z],s:[range(0.3,0.65),range(0.25,0.55),range(0.35,0.7)],c:['#6a845f','#738963','#647d5d'][i%3]});
   }
   const shrubMesh=batch(sphereGeometry,foliageMaterial,shrubs,world,false);
   petalMesh.userData.pickType = 'flowers';
@@ -438,7 +456,6 @@ export function createWorld(container, { onSelect } = {}) {
     const z = range(-11.4, 11.4);
     if ((x + 8.8) ** 2 / 12 + (z - 7.4) ** 2 / 4.5 < 1 || (x < -6.1 && x > -12 && z > -4.6 && z < 3.5)) continue;
     if (bedDefinitions.some(b => (x - b.x) ** 2 / (b.rx * b.rx) + (z - b.z) ** 2 / (b.rz * b.rz) < 1.25)) continue;
-    if (path.getPoints(25).some(p => Math.hypot(p.x - x, p.z - z) < 0.75)) continue;
     grasses.push({ p: [x, 0.01, z], s: [range(0.5, 1.2), range(0.23, 0.9), range(0.7, 1.1)], r: [0, range(0, 6.28), range(-0.12, 0.12)], c: new THREE.Color().setHSL(0.17, 0.07, range(0.75, 1)) });
   }
   const grassBlades = batch(bladeGeo, bladeMaterial, grasses, world, false);
@@ -680,7 +697,7 @@ export function createWorld(container, { onSelect } = {}) {
   const pointer = new THREE.Vector2();
   const background = new THREE.Color();
   const targetColor = new THREE.Color();
-  const overviewPosition = new THREE.Vector3(32, 29, 36);
+  const overviewPosition = new THREE.Vector3(28, 17, 35);
   const followTarget = new THREE.Vector3();
   const followPosition = new THREE.Vector3();
 
@@ -721,7 +738,7 @@ export function createWorld(container, { onSelect } = {}) {
   function setCamera(preset = 'overview') {
     cameraUserControlled = false;
     const presets = {
-      overview: { position: overviewPosition, target: new THREE.Vector3(0, 0.3, 0) },
+      overview: { position: overviewPosition, target: new THREE.Vector3(0, 0.8, 0) },
       hive: { position: new THREE.Vector3(-1.8, 5.7, 6.7), target: new THREE.Vector3(-8.6, 1.5, -1.7) },
       inside: { position: new THREE.Vector3(-2.4, 3.7, -1.4), target: new THREE.Vector3(-8.2, 1.95, -2) },
       flowers: { position: new THREE.Vector3(12.5, 8.2, 15), target: new THREE.Vector3(4.4, 0.6, 2.5) },
@@ -754,7 +771,7 @@ export function createWorld(container, { onSelect } = {}) {
     const offsetFraction = width < 600 ? 0.015 : camera.aspect < 1.3 ? 0.20 : 0.12;
     camera.setViewOffset(width, height, 0, Math.round(height * offsetFraction), width, height);
     const overviewScale = Math.max(1.06, 1.18 / camera.aspect);
-    overviewPosition.set(32, 29, 36).multiplyScalar(overviewScale);
+    overviewPosition.set(28, 17, 35).multiplyScalar(overviewScale);
     controls.maxDistance = Math.max(82, overviewPosition.length() * 1.4);
     camera.far = Math.max(180, overviewPosition.length() + 120);
     scene.fog.near = 68 * Math.max(1, overviewScale);
@@ -765,7 +782,7 @@ export function createWorld(container, { onSelect } = {}) {
       if (cameraTransition) cameraTransition.to.copy(overviewPosition);
       else {
         camera.position.copy(overviewPosition);
-        controls.target.set(0, 0.3, 0);
+        controls.target.set(0, 0.8, 0);
       }
     }
     camera.updateProjectionMatrix();
@@ -790,10 +807,10 @@ export function createWorld(container, { onSelect } = {}) {
     if (key !== appearanceKey) {
       appearanceKey = key;
       const tones = {
-        spring: { ground: '#667d56', grass: '#557449', leaf: '#58734f', fruit: '#d2c7ad', sky: '#b9cbd0' },
-        summer: { ground: '#607551', grass: '#4e6844', leaf: '#4d6a49', fruit: '#9b7d57', sky: '#b6c6cd' },
-        autumn: { ground: '#777a53', grass: '#70744e', leaf: '#776b47', fruit: '#8e644c', sky: '#c8c7bb' },
-        winter: { ground: '#838d82', grass: '#80887c', leaf: '#646f62', fruit: '#b3b3aa', sky: '#b9c5ca' },
+        spring: { ground: '#7f966f', grass: '#648259', leaf: '#708a65', fruit: '#d2c7ad', sky: '#b9cbd0' },
+        summer: { ground: '#758b65', grass: '#5e7953', leaf: '#647d59', fruit: '#9b7d57', sky: '#b6c6cd' },
+        autumn: { ground: '#8d8d65', grass: '#7e8057', leaf: '#897956', fruit: '#8e644c', sky: '#c8c7bb' },
+        winter: { ground: '#989f95', grass: '#838d80', leaf: '#717b6e', fruit: '#b3b3aa', sky: '#b9c5ca' },
       }[season];
       grassMaterial.color.set(weather === 'drought' ? '#777a54' : tones.ground);
       bladeMaterial.color.set(weather === 'drought' ? '#74714e' : tones.grass);
