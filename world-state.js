@@ -1,4 +1,4 @@
-import { POLLINATION_DEFAULTS } from './model.js';
+import { POLLINATION_DEFAULTS } from './model.js?v=2.2.1';
 
 const YEAR_DAYS = 365;
 const HOURS_PER_REAL_SECOND = 6;

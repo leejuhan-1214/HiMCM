@@ -1,5 +1,5 @@
-import { DEFAULTS, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate } from './model.js';
-import { createTimeline, deriveWorldState } from './world-state.js';
+import { DEFAULTS, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate } from './model.js?v=2.2.1';
+import { createTimeline, deriveWorldState } from './world-state.js?v=2.2.1';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -34,7 +34,7 @@ const climateLabels={clear:'평년',rain:'비 많은 해',drought:'가뭄 해'};
 $$('[data-weather]').forEach(button=>{button.lastChild.textContent=climateLabels[button.dataset.weather];});
 $('.hive-processes').insertAdjacentHTML('beforeend','<div><span>꿀 저장</span><b id="detail-nectar">—</b></div><div><span>꽃가루 저장</span><b id="detail-pollen">—</b></div><div><span>주변 꽃 자원</span><b id="detail-resource">—</b></div><div><span>꽃가루 충족</span><b id="detail-nutrition">—</b></div><div><span>야생 수분매개자 활동</span><b id="detail-wild">—</b></div>');
 $('.pollination-status').insertAdjacentHTML('beforeend','<p id="world-resource" class="world-resource" aria-live="off">꽃 자원과 저장량을 계산하는 중입니다.</p>');
-$('.quality-setting').insertAdjacentHTML('beforebegin','<div class="setting"><label for="habitat-quality">주변 꽃 서식지 <b id="habitat-quality-label">70%</b></label><input id="habitat-quality" type="range" min="50" max="110" value="70" step="5"><p class="setting-hint">농지 가장자리·야생화·꽃나무가 제공하는 먹이의 가상 상대량</p></div>');
+$('.quality-setting').insertAdjacentHTML('beforebegin','<div class="setting"><label for="habitat-quality">주변 꽃 서식지 <b id="habitat-quality-label">70%</b></label><input id="habitat-quality" type="range" min="50" max="110" value="70" step="5"><p class="setting-hint">농지 가장자리·야생화·꽃나무의 먹이량과 다양성에 대한 가상 대리변수</p></div>');
 $('.honesty-note strong').textContent='자연의 연결을 단순화한 실험 모델입니다.';
 $('.honesty-note p').textContent='꽃 자원과 연중 기후가 채집·먹이 저장·육아·생존에 영향을 줍니다. 저장량은 실제 kg이 아닌 상대적인 먹이 단위입니다. 화면의 벌·꽃·벌집은 표본이며, 지형은 실제 20에이커 측량 지도가 아닙니다. 계수는 현장 자료로 보정되지 않았습니다.';
 $('#results-dialog .panel-note').textContent='한 군집의 일별 기대 개체수입니다. 선택한 연중 기후·서식지 조건이 꽃 자원과 먹이 저장을 거쳐 다음 세대에 영향을 줍니다. 현장 관측으로 보정된 예측은 아닙니다.';
@@ -133,7 +133,7 @@ function showResults(){
   saveSnapshot();$('#results-dialog').showModal();
 }
 function saveSnapshot(){
-  const data={version:'2.2.0',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Counts interpolate a deterministic daily cohort model with hypothetical floral-resource and food-store feedback.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
+  const data={version:'2.2.1',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Counts interpolate a deterministic daily cohort model with hypothetical floral-resource and food-store feedback.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
   if(snapshotURL)URL.revokeObjectURL(snapshotURL);snapshotURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));$('#export-world').href=snapshotURL;
   let preview=$('#snapshot-preview');if(!preview){preview=document.createElement('details');preview.id='snapshot-preview';preview.innerHTML='<summary>다운로드가 시작되지 않나요? JSON 내용 보기</summary><textarea id="snapshot-json" readonly aria-label="현재 시점 JSON 데이터" rows="7"></textarea>';$('#results-dialog').append(preview);}$('#snapshot-json').value=JSON.stringify(data,null,2);
 }
@@ -199,7 +199,7 @@ async function start(){
   }catch{toast('공유 설정을 읽지 못해 기준 군집을 사용합니다.');}
   makeSparkline();updateBloomUI();refreshFrame();updateUI();
   try{
-    const {createWorld}=await import('./world.js');world=createWorld($('#world'),{onSelect:selectObject});
+    const {createWorld}=await import('./world.js?v=2.2.1');world=createWorld($('#world'),{onSelect:selectObject});
     if(innerWidth<600){world.setQuality('low');$('#world-quality').value='low';}
     world.update(frame,0);$('#world-loading').classList.add('done');setTimeout(()=>$('#world-loading').hidden=true,600);rafId=requestAnimationFrame(animate);
   }catch(error){
