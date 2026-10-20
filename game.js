@@ -139,14 +139,14 @@ function showResults(){
   saveSnapshot();$('#results-dialog').showModal();
 }
 function saveSnapshot(){
-  const data={version:'2.3.0',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Landscape patches, foraging distances, water and exposure effects are uncalibrated scenario assumptions.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
+  const data={version:'2.3.1',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Landscape patches, foraging distances, water and exposure effects are uncalibrated scenario assumptions.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
   if(snapshotURL)URL.revokeObjectURL(snapshotURL);snapshotURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));$('#export-world').href=snapshotURL;
   let preview=$('#snapshot-preview');if(!preview){preview=document.createElement('details');preview.id='snapshot-preview';preview.innerHTML='<summary>다운로드가 시작되지 않나요? JSON 내용 보기</summary><textarea id="snapshot-json" readonly aria-label="현재 시점 JSON 데이터" rows="7"></textarea>';$('#results-dialog').append(preview);}$('#snapshot-json').value=JSON.stringify(data,null,2);
 }
 document.addEventListener('click',event=>{
   const b=event.target.closest('button');if(!b)return;
   if(b.dataset.speed){timeline.setSpeed(Number(b.dataset.speed));updateControls();return;}
-  if(b.dataset.camera){if(detail)detailView(false,false);world?.setCamera(b.dataset.camera);$$('[data-camera]').forEach(el=>{const a=el===b;el.classList.toggle('selected',a);el.setAttribute('aria-pressed',String(a));});if(b.dataset.camera==='follow'&&frame.beeCount===0)toast('지금 벌들이 쉬고 있어요. 낮이나 개화기로 이동해 보세요.');return;}
+  if(b.dataset.camera){if(detail)detailView(false,false);world?.setCamera(b.dataset.camera);$$('.camera-tools button[data-camera]').forEach(el=>{const a=el===b;el.classList.toggle('selected',a);el.setAttribute('aria-pressed',String(a));});if(b.dataset.camera==='follow'&&frame.beeCount===0)toast('지금 벌들이 쉬고 있어요. 낮이나 개화기로 이동해 보세요.');return;}
   if(b.dataset.weather){weather=b.dataset.weather;$$('[data-weather]').forEach(el=>{el.classList.toggle('selected',el===b);el.setAttribute('aria-pressed',String(el===b));});result=runEcology();makeSparkline();refreshFrame();updateUI();toast('기후 시나리오를 바꿔 1년의 군집과 먹이 저장을 다시 계산했어요.');return;}
   switch(b.id){
     case 'world-play':togglePlay();break;
