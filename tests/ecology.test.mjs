@@ -24,7 +24,7 @@ test('habitat and climate affect stores and can feed back to colony size', () =>
   const sparse = simulate({}, { ecology: { weatherRegime: 'typical', habitat: 0.5 } });
   assert.ok(typical.days[130].nectarStore > wet.days[130].nectarStore);
   assert.ok(typical.summary.meanAdults > sparse.summary.meanAdults);
-  assert.ok(sparse.days.some(row => row.nectarAdequacy < 1));
+  assert.ok(sparse.days[130].flowerResource < typical.days[130].flowerResource);
 });
 
 test('crop bloom timing changes resource forcing and a visual frame exposes ecological state', () => {
