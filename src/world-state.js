@@ -1,4 +1,4 @@
-import { POLLINATION_DEFAULTS } from './model.js?v=2.3.0';
+import { POLLINATION_DEFAULTS } from './model.js?v=2.4.0';
 
 const YEAR_DAYS = 365;
 const HOURS_PER_REAL_SECOND = 6;
@@ -158,7 +158,31 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
   const hasEcology = Number.isFinite(Number(left.nectarStore));
   const flightWeather = hasEcology ? clamp(interpolate('flightWeather'), 0, 1) : conditions.activity;
   const rainyDay = hasEcology ? Boolean(left.rainyDay) : selectedWeather === 'rain';
-  const renderWeather = rainyDay ? 'rain' : selectedWeather === 'drought' ? 'drought' : 'clear';
+  const zones = ['hive', 'meadow', 'orchard', 'woodland', 'crop', 'village'];
+  const zoneRain = Object.fromEntries(zones.map(key => [key, hasEcology ? clamp(finite(left.zoneRain?.[key]), 0, 1) : 0]));
+  const zoneSnowfall = Object.fromEntries(zones.map(key => [key, hasEcology ? clamp(finite(left.zoneSnowfall?.[key]), 0, 1) : 0]));
+  const zoneSnowpack = Object.fromEntries(zones.map(key => [key, hasEcology ? clamp(finite(left.zoneSnowpack?.[key]), 0, 2) : 0]));
+  const zoneTemperature = Object.fromEntries(zones.map(key => [key, hasEcology ? finite(left.zoneTemperature?.[key], 10) : 10]));
+  const zoneCloud = Object.fromEntries(zones.map(key => [key, hasEcology ? clamp(finite(left.zoneCloud?.[key]), 0, 1) : 0]));
+  const zoneSoil = Object.fromEntries(zones.map(key => [key, hasEcology ? clamp(finite(left.zoneSoil?.[key]), 0, 1) : 0.6]));
+  const zoneWeatherKind = Object.fromEntries(zones.map(key => [key, left.zoneWeatherKind?.[key] ?? 'clear']));
+  const zoneWeatherCause = Object.fromEntries(zones.map(key => [key, left.zoneWeatherCause?.[key] ?? '이 구역의 강수 원인 정보가 없습니다.']));
+  // Daily water balance uses a whole-day rain amount; visible showers occur
+  // mainly in the afternoon, while a front can rain through much of the day.
+  const zoneRainNow = Object.fromEntries(zones.map(key => {
+    const kind = zoneWeatherKind[key];
+    const active = kind === 'shower' ? hour >= 12 && hour <= 19 : hour >= 4 && hour <= 22;
+    return [key, active ? zoneRain[key] : 0];
+  }));
+  const zoneSnowNow = Object.fromEntries(zones.map(key => {
+    const kind = zoneWeatherKind[key];
+    const active = kind === 'shower' ? hour >= 12 && hour <= 19 : hour >= 4 && hour <= 22;
+    return [key, active ? zoneSnowfall[key] : 0];
+  }));
+  const rainingNow = hasEcology ? Object.values(zoneRainNow).some(value => value > 0.1) : rainyDay;
+  const snowingNow = Object.values(zoneSnowNow).some(value => value > 0.1);
+  const renderWeather = snowingNow ? 'snow' : rainingNow ? 'rain' :
+    ((hasEcology ? zoneSoil.hive < 0.22 : selectedWeather === 'drought') ? 'drought' : 'clear');
   const daylight = hour > 6 && hour < 18 ? Math.sin(Math.PI * (hour - 6) / 12) ** 1.3 : 0;
   const activity = seasonalActivity * daylight * flightWeather;
   const activeForagers = foragers * activity;
@@ -194,7 +218,7 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
     loop: Boolean(clock.loop),
     weather: selectedWeather,
     renderWeather,
-    weatherLabel: hasEcology ? (rainyDay ? '비 오는 날' : selectedWeather === 'drought' ? '건조한 날' : '맑거나 흐림') : conditions.label,
+    weatherLabel: hasEcology ? (zoneSnowNow.hive > 0.1 ? '벌통 주변 눈' : zoneRainNow.hive > 0.1 ? '벌통 주변 비' : snowingNow ? '주변 구역 눈' : rainingNow ? '주변 구역 비' : renderWeather === 'drought' ? '토양 건조' : '맑거나 흐림') : conditions.label,
     weatherFactor: flightWeather,
     seasonalActivity, daylight, activity, activeForagers, beeCount,
     flowerCoverage, inBloom,
@@ -203,6 +227,8 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
     wildPollinators: hasEcology ? clamp(interpolate('wildPollinators'), 0, 1) : 0,
     zoneResources: Object.fromEntries(['meadow', 'orchard', 'woodland', 'village', 'crop'].map(key => [key,
       hasEcology ? Math.max(0, finite(left.zoneResources?.[key]) + (finite(right.zoneResources?.[key]) - finite(left.zoneResources?.[key])) * fraction) : 0])),
+    zoneRain, zoneRainNow, zoneSnowfall, zoneSnowNow, zoneSnowpack, zoneTemperature,
+    zoneCloud, zoneSoil, zoneWeatherKind, zoneWeatherCause,
     landscapeAccess: hasEcology ? clamp(interpolate('landscapeAccess'), 0, 1) : 1,
     forageDistanceKm: hasEcology ? interpolate('forageDistanceKm') : 0,
     exposureIndex: hasEcology ? clamp(interpolate('exposureIndex'), 0, 1) : 0,
@@ -219,7 +245,7 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
     pollinationRate, dailyDemand, dailySupply, potentialDailySupply,
     effectiveVisits: dailySupply,
     weatherExplanation: hasEcology
-      ? '선택한 기후 시나리오는 연중 비행·꽃 자원·먹이 저장·육아와 생존에 영향을 줍니다. 계수는 현장 보정값이 아닙니다.'
+      ? `벌통 주변: ${zoneWeatherCause.hive} 비구름은 바람과 함께 이동하며, 비는 토양에 남아 이후 개화·채집·육아에도 영향을 줍니다. 강수량은 실측값이 아닌 상대 지수입니다.`
       : '선택한 날씨는 시각화와 당일 채집 능력의 가정입니다. 군집 개체수에는 되먹임하지 않습니다.',
   };
 }
