@@ -5,7 +5,8 @@ import { OrbitControls } from '../vendor/OrbitControls.js';
  * A procedural temperate farm-edge landscape, driven by the daily model.
  * This module does not advance ecology or compute population/pollination.
  * Rendered insects are deterministic representative samples, never 1:1 bees.
- * Coordinates: Y is up; one hive (-9,-2), flower fields (+5,+4)/(+5,-6).
+ * Coordinates: Y is up; one hive (-9,-2). The wider mosaic is a schematic,
+ * not a metrically accurate map of the model's kilometre-scale foraging area.
  */
 export function createWorld(container, { onSelect } = {}) {
   if (!container?.appendChild) throw new TypeError('A DOM container is required for the 3D world.');
@@ -26,22 +27,22 @@ export function createWorld(container, { onSelect } = {}) {
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.setClearColor('#cbd4cc');
   renderer.domElement.className = 'bee-world-canvas';
-  renderer.domElement.setAttribute('aria-label', '벌통 한 개와 꽃밭을 보여주는 3D 가상 환경. 드래그로 회전하고 스크롤로 확대합니다.');
+  renderer.domElement.setAttribute('aria-label', '벌통과 주변 초지·과수원·숲·마을·물길을 보여주는 3D 가상 환경. 드래그로 회전하고 스크롤로 확대합니다.');
   renderer.domElement.setAttribute('role', 'img');
   renderer.domElement.style.cssText = 'display:block;width:100%;height:100%;touch-action:none;outline:none;';
   container.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
   scene.background = new THREE.Color('#cbd4cc');
-  scene.fog = new THREE.Fog('#cbd4cc', 65, 150);
-  const camera = new THREE.PerspectiveCamera(44, 1, 0.1, 180);
-  camera.position.set(28, 17, 35);
+  scene.fog = new THREE.Fog('#cbd4cc', 150, 290);
+  const camera = new THREE.PerspectiveCamera(44, 1, 0.1, 360);
+  camera.position.set(96, 74, 106);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0.8, 0);
   controls.enableDamping = true;
   controls.dampingFactor = 0.07;
   controls.minDistance = 4.5;
-  controls.maxDistance = 82;
+  controls.maxDistance = 235;
   controls.maxPolarAngle = Math.PI * 0.47;
   controls.minPolarAngle = 0.13;
   controls.enablePan = true;
@@ -168,7 +169,7 @@ export function createWorld(container, { onSelect } = {}) {
 
   // Continuous ground replaces the former floating display island. The
   // geometry is intentionally local; the 20-acre calculation is not mapped 1:1.
-  const floor = mesh(geometry('floor', () => new THREE.PlaneGeometry(300, 300)), grassMaterial, [0, -0.12, 0], [1, 1, 1], [-Math.PI / 2, 0, 0], scene);
+  const floor = mesh(geometry('floor', () => new THREE.PlaneGeometry(440, 440)), grassMaterial, [0, -0.12, 0], [1, 1, 1], [-Math.PI / 2, 0, 0], scene);
   floor.castShadow = false;
   floor.receiveShadow = true;
   const soilPatches=[];
@@ -471,6 +472,100 @@ export function createWorld(container, { onSelect } = {}) {
   }
   const grassBlades = batch(bladeGeo, bladeMaterial, grasses, world, false);
 
+  // The central 34 × 26 plot remains detailed. The surrounding 140 × 120
+  // schematic mosaic covers >10× that illustrated area at a cheaper LOD.
+  const regionMaterials = {
+    meadow: material('region-meadow', '#8aa276', { roughness: 1, side: THREE.DoubleSide }),
+    orchard: material('region-orchard', '#82956c', { roughness: 1, side: THREE.DoubleSide }),
+    woodland: material('region-woodland', '#62755b', { roughness: 1, side: THREE.DoubleSide }),
+    crop: material('region-crop', '#a09a72', { roughness: 1, side: THREE.DoubleSide }),
+    village: material('region-village', '#899279', { roughness: 1, side: THREE.DoubleSide }),
+  };
+  const regionSpecs = [
+    { key: 'meadow', title: '초지와 꽃길', x: -40, z: 1, sx: 29, sz: 52, mat: regionMaterials.meadow },
+    { key: 'orchard', title: '과수원', x: 39, z: -12, sx: 39, sz: 33, mat: regionMaterials.orchard },
+    { key: 'woodland', title: '숲 가장자리', x: -1, z: -43, sx: 124, sz: 30, mat: regionMaterials.woodland },
+    { key: 'crop', title: '넓은 경작지', x: 34, z: 17, sx: 42, sz: 17, mat: regionMaterials.crop },
+    { key: 'village', title: '마을과 정원', x: 39, z: 40, sx: 48, sz: 27, mat: regionMaterials.village },
+  ];
+  const regionGeo = geometry('region-ground', () => new THREE.PlaneGeometry(1, 1));
+  function irregularPatch(width, depth) {
+    const shape = new THREE.Shape();
+    for (let i = 0; i <= 32; i++) {
+      const angle = i / 32 * Math.PI * 2;
+      const waviness = 0.88 + 0.08 * Math.sin(angle * 5.0 + width) + 0.05 * Math.sin(angle * 9.0 + depth);
+      const x = Math.cos(angle) * width * 0.5 * waviness;
+      const y = Math.sin(angle) * depth * 0.5 * waviness;
+      if (i === 0) shape.moveTo(x, y); else shape.lineTo(x, y);
+    }
+    return track(new THREE.ShapeGeometry(shape));
+  }
+  for (const region of regionSpecs) {
+    const natural = region.key === 'meadow' || region.key === 'woodland';
+    const surface = mesh(natural ? irregularPatch(region.sx, region.sz) : regionGeo, region.mat,
+      [region.x, -0.105, region.z], natural ? [1, 1, 1] : [region.sx, region.sz, 1], [-Math.PI / 2, 0, 0]);
+    surface.castShadow = false;
+    surface.userData.pickType = 'zone';
+    surface.userData.zoneKey = region.key;
+    pickables.push(surface);
+  }
+  const regionBloomMat = material('region-bloom', '#e2dbc0', { roughness: 1 });
+  const regionBloomItems = [];
+  for (let i = 0; i < 780; i++) {
+    const x = range(-54, -26), z = range(-23, 26);
+    regionBloomItems.push({ p: [x, range(0.16, 0.35), z], s: [range(0.07, 0.15), range(0.1, 0.24), range(0.07, 0.15)], c: ['#e9dfca', '#dad9bf', '#cfbca9', '#dfdbe1'][i % 4] });
+  }
+  const regionBloom = batch(icoGeometry, regionBloomMat, regionBloomItems, world, false);
+  const regionTreeTrunks = [], regionTreeCrowns = [], regionOrchardBlossoms = [];
+  for (let i = 0; i < 66; i++) {
+    const x = 21 + (i % 11) * 3.1 + range(-0.3, 0.3);
+    const z = -26 + Math.floor(i / 11) * 4.2 + range(-0.25, 0.25);
+    const h = range(2.2, 3.3);
+    regionTreeTrunks.push({ p: [x, h / 2, z], s: [0.19, h, 0.19] });
+    regionTreeCrowns.push({ p: [x, h + 0.45, z], s: [1.0, 1.03, 1.0], c: '#79936b' });
+    regionOrchardBlossoms.push({ p: [x, h + 0.45, z], s: [1.06, 1.07, 1.06], c: '#dfddd0' });
+  }
+  for (let i = 0; i < 142; i++) {
+    const x = range(-65, 65), z = range(-58, -31);
+    if (x > -17 && x < 18 && z > -36) continue;
+    const h = range(2.5, 6.3);
+    regionTreeTrunks.push({ p: [x, h / 2, z], s: [0.17, h, 0.17] });
+    regionTreeCrowns.push({ p: [x, h + 0.5, z], s: [range(1.0, 1.6), range(1.2, 1.9), range(1.0, 1.5)], c: ['#54745a', '#6f8a64', '#4f7158'][i % 3] });
+  }
+  batch(cylinderGeometry, bark, regionTreeTrunks, world, false);
+  const regionCrowns = batch(icoGeometry, foliageMaterial, regionTreeCrowns, world, false);
+  const orchardBlossoms = batch(icoGeometry, regionBloomMat, regionOrchardBlossoms, world, false);
+  const regionalCrops = [];
+  for (let row = 0; row < 16; row++) {
+    const x = 16 + row * 2.2;
+    regionalCrops.push({ p: [x, -0.075, 17], s: [0.75, 0.03, 14.4], c: row % 3 ? '#748b60' : '#9b956e' });
+  }
+  batch(boxGeometry, material('regional-crop-row', '#ffffff'), regionalCrops, world, false);
+  const villageParts = [];
+  for (let i = 0; i < 11; i++) {
+    const x = 21 + (i % 4) * 10 + range(-1.5, 1.5), z = 33 + Math.floor(i / 4) * 8 + range(-1, 1);
+    villageParts.push({ p: [x, 1.15, z], s: [range(2.7, 4.2), 2.3, range(2.6, 3.9)], c: ['#a9a698', '#c3baaa', '#a8afa0'][i % 3] });
+  }
+  batch(boxGeometry, material('village-walls', '#ffffff'), villageParts, world, false);
+  const roofs = villageParts.map(p => ({ p: [p.p[0], 2.48, p.p[2]], s: [p.s[0] * 1.13, 0.35, p.s[2] * 1.13], c: '#7d7468' }));
+  batch(boxGeometry, material('village-roofs', '#ffffff'), roofs, world, false);
+  const road = mesh(geometry('road', () => new THREE.PlaneGeometry(10, 75)), material('road', '#9a9789', { roughness: 1 }), [15, -0.095, 35], [1, 1, 1], [-Math.PI / 2, 0, 0]);
+  road.castShadow = false;
+  const streamCurve = new THREE.CatmullRomCurve3([
+    new THREE.Vector3(-65, -0.06, -65), new THREE.Vector3(-67, -0.06, -35),
+    new THREE.Vector3(-61, -0.06, -8), new THREE.Vector3(-66, -0.06, 20), new THREE.Vector3(-62, -0.06, 64),
+  ]);
+  const stream = mesh(track(new THREE.TubeGeometry(streamCurve, 80, 2.4, 7, false)), material('stream', '#6d9a9a', { roughness: 0.45 }), [0, 0, 0], [1, 0.05, 1]);
+  stream.castShadow = false;
+  const regionHitBoxes = [];
+  for (const region of regionSpecs) {
+    const hit = mesh(boxGeometry, flowerHitMaterial, [region.x, 0.35, region.z], [region.sx * 0.9, 0.65, region.sz * 0.9]);
+    hit.castShadow = false;
+    hit.userData.pickType = 'zone'; hit.userData.zoneKey = region.key;
+    regionHitBoxes.push(hit);
+  }
+  pickables.push(...regionHitBoxes);
+
   const clouds = new THREE.Group();
   world.add(clouds);
   clouds.visible=false;
@@ -627,6 +722,14 @@ export function createWorld(container, { onSelect } = {}) {
     line.computeLineDistances();
     routes.add(line);
   }
+  for (const region of regionSpecs.filter(item => item.key !== 'crop')) {
+    const destination = new THREE.Vector3(region.x, 0.4, region.z);
+    const route = new THREE.CubicBezierCurve3(entrance.clone(),
+      entrance.clone().lerp(destination, 0.3).add(new THREE.Vector3(0, 4, 0)),
+      entrance.clone().lerp(destination, 0.7).add(new THREE.Vector3(0, 3, 0)), destination);
+    const line = new THREE.Line(track(new THREE.BufferGeometry().setFromPoints(route.getPoints(70))), routeMaterial);
+    line.computeLineDistances(); routes.add(line);
+  }
 
   const RAIN_COUNT = 380;
   const rainRecords = Array.from({ length: RAIN_COUNT }, () => ({ x: range(-16.5, 16.5), z: range(-12.5, 12.5), y: range(0, 16) }));
@@ -644,7 +747,7 @@ export function createWorld(container, { onSelect } = {}) {
   snow.visible = false;
   snow.frustumCulled = false;
   world.add(snow);
-  const groundSnow = mesh(geometry('ground-snow', () => new THREE.PlaneGeometry(300, 300)), snowMaterial, [0, -0.105, 0], [1, 1, 1], [-Math.PI / 2, 0, 0]);
+  const groundSnow = mesh(geometry('ground-snow', () => new THREE.PlaneGeometry(440, 440)), snowMaterial, [0, -0.09, 0], [1, 1, 1], [-Math.PI / 2, 0, 0]);
   groundSnow.visible = false;
   groundSnow.castShadow = false;
   const hiveSnow = mesh(boxGeometry, snowMaterial, [0, 3.41, 0], [3.02, 0.12, 2.5], [0, 0, 0], hive);
@@ -701,6 +804,7 @@ export function createWorld(container, { onSelect } = {}) {
   let cameraUserControlled = false;
   let pointerStart = null;
   let selectedType = null;
+  let selectedZoneKey = null;
   let detailMode = false;
   let lastVisitedFlowerCount = -1;
   let followIndex = 0;
@@ -708,13 +812,14 @@ export function createWorld(container, { onSelect } = {}) {
   const pointer = new THREE.Vector2();
   const background = new THREE.Color();
   const targetColor = new THREE.Color();
-  const overviewPosition = new THREE.Vector3(28, 17, 35);
+  const overviewPosition = new THREE.Vector3(96, 74, 106);
   const followTarget = new THREE.Vector3();
   const followPosition = new THREE.Vector3();
 
   function pickDescription(type) {
     if (type === 'hive') return { type, title: 'HIVE 01 · 단일 군집', description: '쌓인 계상 상자는 모두 한 벌통을 구성합니다. 실제 군집의 알·미성숙 개체·내근벌·채집벌·수벌 수는 일별 모델에서 계산하며, 현재 수치는 선택 정보에서 확인합니다.' };
     if (type === 'flowers') return { type, title: '작물밭과 주변 식생', description: '작물의 짧은 개화와 농지 가장자리의 야생화 자원을 구분했습니다. 꽃 자원은 채집과 먹이 저장에 영향을 주지만, 3D 배치는 실제 20에이커 측량 지도가 아닙니다.' };
+    if (type === 'zone') return { type, zoneKey: selectedZoneKey, title: regionSpecs.find(item => item.key === selectedZoneKey)?.title ?? '주변 경관', description: '이 구역의 개화 자원은 계절에 따라 변하고, 벌통과의 거리에 따른 채집 비용을 거쳐 먹이 저장량에 연결됩니다. 3D 배치는 설명용이며 거리 계수는 가정입니다.' };
     return { type: 'bee', title: '채집벌 · 대표 개체', description: `화면에는 최대 ${MAX_BEES}개의 대표 개체를 표시합니다. 이 경로는 공간 설명용이며 수분 계산은 모델의 일별 수요·공급을 사용합니다. 실제 채집벌 수와 화면의 벌 수는 다릅니다.` };
   }
 
@@ -733,6 +838,7 @@ export function createWorld(container, { onSelect } = {}) {
     const hit = hits.find(item => item.object.userData.pickType);
     if (hit) {
       selectedType = hit.object.userData.pickType;
+      selectedZoneKey = hit.object.userData.zoneKey ?? null;
       if (selectedType === 'bee' && Number.isInteger(hit.instanceId)) followIndex = hit.instanceId;
       onSelect?.(pickDescription(selectedType));
     }
@@ -750,6 +856,7 @@ export function createWorld(container, { onSelect } = {}) {
     cameraUserControlled = false;
     const presets = {
       overview: { position: overviewPosition, target: new THREE.Vector3(0, 0.8, 0) },
+      farm: { position: new THREE.Vector3(28, 17, 35), target: new THREE.Vector3(0, 0.8, 0) },
       hive: { position: new THREE.Vector3(-1.8, 5.7, 6.7), target: new THREE.Vector3(-8.6, 1.5, -1.7) },
       inside: { position: new THREE.Vector3(-2.4, 3.7, -1.4), target: new THREE.Vector3(-8.2, 1.95, -2) },
       flowers: { position: new THREE.Vector3(12.5, 8.2, 15), target: new THREE.Vector3(4.4, 0.6, 2.5) },
@@ -781,12 +888,12 @@ export function createWorld(container, { onSelect } = {}) {
     // controls. This is a view offset, not a changed FOV or stretched projection.
     const offsetFraction = width < 600 ? 0.015 : camera.aspect < 1.3 ? 0.20 : 0.12;
     camera.setViewOffset(width, height, 0, Math.round(height * offsetFraction), width, height);
-    const overviewScale = Math.max(1.06, 1.18 / camera.aspect);
-    overviewPosition.set(28, 17, 35).multiplyScalar(overviewScale);
-    controls.maxDistance = Math.max(82, overviewPosition.length() * 1.4);
-    camera.far = Math.max(180, overviewPosition.length() + 120);
-    scene.fog.near = 68 * Math.max(1, overviewScale);
-    scene.fog.far = 130 * Math.max(1, overviewScale);
+    const overviewScale = Math.max(1, 1.18 / camera.aspect);
+    overviewPosition.set(96, 74, 106).multiplyScalar(overviewScale);
+    controls.maxDistance = Math.max(235, overviewPosition.length() * 1.4);
+    camera.far = Math.max(360, overviewPosition.length() + 180);
+    scene.fog.near = 150 * Math.max(1, overviewScale);
+    scene.fog.far = 290 * Math.max(1, overviewScale);
     // The very first resize must move the real camera as well as the preset.
     // Later resizes preserve intentional orbit/pan/zoom by the user.
     if (cameraPreset === 'overview' && !cameraUserControlled) {
@@ -835,6 +942,10 @@ export function createWorld(container, { onSelect } = {}) {
       hiveSnow.visible = winter && !detailMode;
       groundSnow.visible = winter;
       treeFruit.visible = !winter;
+      for (const region of regionSpecs) region.mat.color.set(weather === 'drought' ?
+        { meadow: '#878962', orchard: '#87866a', woodland: '#69745b', crop: '#aaa177', village: '#999789' }[region.key] :
+        winter ? '#a4aba1' : { meadow: '#8aa276', orchard: '#82956c', woodland: '#62755b', crop: '#a09a72', village: '#899279' }[region.key]);
+      regionCrowns.visible = !winter;
       snow.visible = winter;
       rain.visible = weather === 'rain' && !winter;
       pond.material.color.set(winter ? '#869d9b' : weather === 'drought' ? '#687a6c' : '#536e6b');
@@ -860,6 +971,9 @@ export function createWorld(container, { onSelect } = {}) {
     wildStemMesh.visible=!winter||wildCount>0;
     wildCenterMesh.visible=wildCount>0;
     wildPetalMesh.visible=wildCount>0;
+    regionBloom.count = Math.round(regionBloomItems.length * clamp(number(state.zoneResources?.meadow, 0), 0, 0.6) / 0.6);
+    regionBloom.visible = regionBloom.count > 0 && !winter;
+    orchardBlossoms.visible = !winter && number(state.zoneResources?.orchard, 0) > 0.08;
     shrubMesh.visible=!winter;
     const hour = mod(number(state.hour, 11), 24);
     const daylight = clamp(Math.sin((hour - 6) / 12 * Math.PI), 0, 1);

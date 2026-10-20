@@ -1,4 +1,4 @@
-import { POLLINATION_DEFAULTS } from './model.js?v=2.2.1';
+import { POLLINATION_DEFAULTS } from './model.js?v=2.3.0';
 
 const YEAR_DAYS = 365;
 const HOURS_PER_REAL_SECOND = 6;
@@ -201,6 +201,13 @@ export function deriveWorldState(result, farm = {}, timeline, { weather = 'clear
     wildflowerCoverage: hasEcology ? clamp(interpolate('wildflower'), 0, 1) : 0.4,
     flowerResource: hasEcology ? clamp(interpolate('flowerResource'), 0, 1) : 0,
     wildPollinators: hasEcology ? clamp(interpolate('wildPollinators'), 0, 1) : 0,
+    zoneResources: Object.fromEntries(['meadow', 'orchard', 'woodland', 'village', 'crop'].map(key => [key,
+      hasEcology ? Math.max(0, finite(left.zoneResources?.[key]) + (finite(right.zoneResources?.[key]) - finite(left.zoneResources?.[key])) * fraction) : 0])),
+    landscapeAccess: hasEcology ? clamp(interpolate('landscapeAccess'), 0, 1) : 1,
+    forageDistanceKm: hasEcology ? interpolate('forageDistanceKm') : 0,
+    exposureIndex: hasEcology ? clamp(interpolate('exposureIndex'), 0, 1) : 0,
+    waterAccess: hasEcology ? clamp(Number(result.ecology?.waterAccess ?? 0.7), 0, 1) : 0.7,
+    structure: hasEcology ? result.ecology?.structure ?? 'mixed' : 'mixed',
     nectarStore: hasEcology ? interpolate('nectarStore') : null,
     pollenStore: hasEcology ? interpolate('pollenStore') : null,
     nectarCollected: hasEcology ? interpolate('nectarCollected') : null,

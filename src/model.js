@@ -111,27 +111,60 @@ function acceptedLaying(p, state, day, foodFactor = 1) {
 // An explicitly hypothetical landscape extension. Stores are ration-equivalents,
 // not measured kilograms: one unit feeds 1,000 summer adults for one day.
 // The forcing is smooth and deterministic so seeking to a date is reproducible.
-function landscape(day, options = {}) {
+export function landscape(day, options = {}) {
   const doy = ((day % YEAR) + YEAR) % YEAR + 1;
   const regime = ['typical', 'wet', 'drought'].includes(options.weatherRegime) ? options.weatherRegime : 'typical';
   const habitat = clamp(numeric(options.habitat, 0.7), 0.2, 1.2);
+  const structure = ['mixed', 'flowerStrip', 'fragmented'].includes(options.structure) ? options.structure : 'mixed';
+  const waterAccess = clamp(numeric(options.waterAccess, 0.7), 0, 1);
+  const pesticidePressure = clamp(numeric(options.pesticidePressure, 0), 0, 1);
   const bloomStart = clamp(numeric(options.bloomStart, 120), 1, 365);
   const bloomDays = clamp(numeric(options.bloomDays, 21), 1, 365);
   const offset = ((doy - bloomStart + YEAR) % YEAR);
   const cropBloom = offset < bloomDays ? Math.sin(Math.PI * offset / bloomDays) ** 0.65 : 0;
-  const spring = Math.exp(-(((doy - 125) / 67) ** 2));
-  const summer = Math.exp(-(((doy - 225) / 82) ** 2));
-  const autumn = Math.exp(-(((doy - 290) / 43) ** 2));
-  const wildflower = doy < 60 || doy > 335 ? 0 : clamp((0.04 + 0.54 * spring + 0.38 * summer + 0.15 * autumn) * habitat, 0, 1);
-  const flowerResource = clamp(wildflower + cropBloom * 0.28, 0, 1);
+  const pulse = (center, width) => Math.exp(-(((doy - center) / width) ** 2));
+  const spring = pulse(125, 67);
+  const summer = pulse(225, 82);
+  const autumn = pulse(290, 43);
+  // A stylized landscape mosaic. Display coordinates are NOT km; these
+  // distances only impose an illustrative round-trip cost on food collection.
+  const patches = {
+    meadow: { km: 0.8, bloom: 0.38 * spring + 0.57 * summer + 0.2 * autumn, weight: 0.44 },
+    orchard: { km: 1.1, bloom: pulse(108, 35), weight: 0.28 },
+    woodland: { km: 2.2, bloom: 0.42 * spring + 0.24 * summer + 0.35 * autumn, weight: 0.38 },
+    village: { km: 3.1, bloom: 0.25 * spring + 0.48 * summer + 0.24 * autumn, weight: 0.20 },
+  };
+  const connectivity = structure === 'fragmented' ? 0.95 : structure === 'flowerStrip' ? 1.12 : 1;
+  const waterMultiplier = regime === 'drought' ? 0.56 + 0.44 * waterAccess : 1;
+  const zoneResources = {};
+  let resourceSum = 0;
+  let distanceSum = 0;
+  for (const [name, patch] of Object.entries(patches)) {
+    const local = structure === 'flowerStrip' && name === 'meadow' ? 1.38 : 1;
+    const access = Math.exp(-patch.km * (structure === 'fragmented' ? 0.22 : 0.15));
+    const resource = patch.bloom * patch.weight * habitat * connectivity * waterMultiplier * local * access;
+    zoneResources[name] = resource;
+    resourceSum += resource;
+    distanceSum += resource * patch.km;
+  }
+  const wildflower = doy < 60 || doy > 335 ? 0 : clamp(resourceSum, 0, 1);
+  const cropResource = cropBloom * 0.28;
+  zoneResources.crop = cropResource;
+  const flowerResource = clamp(wildflower + cropResource, 0, 1);
   const weatherPulse = Math.sin(doy * 0.19 + 1.4) + 0.45 * Math.sin(doy * 0.61);
   const rainyDay = regime === 'wet' ? weatherPulse > 0.35 : regime === 'drought' ? weatherPulse > 1.05 : weatherPulse > 0.85;
   const flightWeather = rainyDay ? 0.55 : regime === 'wet' ? 0.93 : regime === 'drought' ? 0.96 : 1;
-  const nectarFactor = regime === 'drought' ? 0.82 : regime === 'wet' ? 0.94 : 1;
-  const pollenFactor = regime === 'drought' ? 0.87 : regime === 'wet' ? 0.95 : 1;
-  const wildPollinators = clamp((0.12 + 0.6 * spring + 0.42 * summer) * flowerResource, 0, 1);
-  return { flowerResource, wildflower, cropBloom, flightWeather, nectarFactor, pollenFactor, rainyDay, wildPollinators, regime };
+  const nectarFactor = regime === 'drought' ? 0.68 + 0.22 * waterAccess : regime === 'wet' ? 0.94 : 1;
+  const pollenFactor = regime === 'drought' ? 0.75 + 0.17 * waterAccess : regime === 'wet' ? 0.95 : 1;
+  const forageDistanceKm = resourceSum + cropResource > 0 ? (distanceSum + cropResource * 0.35) / (resourceSum + cropResource) : 0;
+  const landscapeAccess = clamp((1 - 0.05 * forageDistanceKm) * (structure === 'fragmented' ? 0.96 : 1), 0.4, 1);
+  const exposureIndex = pesticidePressure * (0.34 + 0.66 * cropBloom) * seasonActivity(doy);
+  const wildPollinators = clamp((0.12 + 0.6 * spring + 0.42 * summer) * wildflower * (1 - 0.55 * pesticidePressure), 0, 1);
+  return { flowerResource, wildflower, cropBloom, flightWeather, nectarFactor, pollenFactor, rainyDay, wildPollinators, regime,
+    zoneResources, landscapeAccess, forageDistanceKm, exposureIndex, waterAccess, pesticidePressure, structure };
 }
+
+function seasonActivity(doy) { return clamp((doy - 55) / 55, 0, 1) * clamp((350 - doy) / 60, 0, 1); }
 
 function foodDay(state, food, p, day, options) {
   const habitat = landscape(day, options);
@@ -139,9 +172,9 @@ function foodDay(state, food, p, day, options) {
   const adults = sum(state.H) + state.F + state.D;
   const brood = sum(state.B) + sum(state.DB);
   const competition = 1 - 0.12 * habitat.wildPollinators;
-  const forage = state.F * season.activity * habitat.flightWeather * habitat.flowerResource * competition;
-  const nectarCollected = forage * 0.021 * habitat.nectarFactor;
-  const pollenCollected = forage * 0.008 * habitat.pollenFactor;
+  const forage = state.F * season.activity * habitat.flightWeather * habitat.flowerResource * habitat.landscapeAccess * competition;
+  const nectarCollected = forage * 0.027 * habitat.nectarFactor;
+  const pollenCollected = forage * 0.011 * habitat.pollenFactor;
   const nectarNeeded = adults / 1000 * (0.28 + 0.72 * season.activity) + brood / 1000 * 0.35;
   const pollenNeeded = brood / 1000 * 0.65 + sum(state.H) / 1000 * season.activity * 0.13;
   const nectarAvailable = food.nectar + nectarCollected;
@@ -202,7 +235,8 @@ function stepState(state, p, time, ecology = null) {
   const social = Math.max(0, 1 - p.socialInhibition * fraction / 0.35);
   // Daily geometric hazards: mean residence time 1/mu, not a deterministic lifetime.
   const starvation = ecology ? (1 - ecology.nectarAdequacy) * 0.035 : 0;
-  const badFlight = ecology ? ((1 - ecology.flightWeather) * 0.017 + (ecology.regime === 'drought' ? 0.003 : 0)) * season.activity : 0;
+  const badFlight = ecology ? ((1 - ecology.flightWeather) * 0.017 + (ecology.regime === 'drought' ? 0.003 : 0)
+    + ecology.exposureIndex * 0.02) * season.activity : 0;
   const muH = clamp(season.activity * p.hiveMortality + (1 - season.activity) / p.winterLife + starvation, 0, 1);
   const muF = clamp(season.activity / p.summerForagerLife + (1 - season.activity) / p.winterLife + starvation + badFlight, 0, 1);
   // Assumed drone mortality incl. autumn/winter exclusion; not a measured coefficient.
@@ -267,6 +301,8 @@ export function simulate(input = {}, options = {}) {
         wildflower: environment.wildflower, cropBloom: environment.cropBloom,
         wildPollinators: environment.wildPollinators,
         flightWeather: environment.flightWeather, rainyDay: environment.rainyDay,
+        landscapeAccess: environment.landscapeAccess, forageDistanceKm: environment.forageDistanceKm,
+        exposureIndex: environment.exposureIndex, zoneResources: environment.zoneResources,
       } : {}),
     };
     if (t >= burnin - YEAR && t < burnin) previousYear.push(current.adults);
@@ -287,7 +323,7 @@ export function simulate(input = {}, options = {}) {
   const warnings = [
     '북반구 온대의 가상 계절 시나리오입니다. 현장 자료로 보정·검증된 예측이 아닙니다.',
     ecological
-      ? '여왕 1마리, 분봉·질병·공간 제한은 제외했습니다. 꽃·날씨·먹이 저장과 영양 피드백은 미보정 시나리오 가정입니다.'
+      ? '여왕 1마리, 분봉·질병·공간 제한은 제외했습니다. 구역별 꽃·거리·물·농약 노출·먹이 저장의 계수는 미보정 시나리오 가정입니다.'
       : '여왕 1마리, 분봉·질병·공간 제한·먹이 저장 동학을 제외했습니다. 영양 계수는 시나리오 가정입니다.',
   ];
   if (cycleDifference !== null && cycleDifference > 0.05) warnings.push('이전 해와 성충 수 차이가 최대치의 5%를 넘습니다. 예열 후에도 주기 수렴이 확인되지 않았습니다.');
