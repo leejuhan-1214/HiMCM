@@ -66,3 +66,31 @@ test('water, fragmentation and pesticide pressure propagate to resources, stores
   assert.ok(frame.exposureIndex > 0);
   assert.equal(frame.waterAccess, 0.7);
 });
+
+test('beekeeper feeding prevents winter starvation; switching it off exposes the unmanaged threshold', () => {
+  const poor = { weatherRegime: 'drought', habitat: 0.5, waterAccess: 0 };
+  const managed = simulate({}, { ecology: poor });
+  const unmanaged = simulate({}, { ecology: { ...poor, feeding: false } });
+  assert.equal(managed.ecology.feeding, true);
+  assert.ok(managed.ecology.fedPerYear > 0);
+  assert.ok(managed.summary.minAdults > 1000, `managed min ${managed.summary.minAdults}`);
+  assert.ok(managed.days.every(day => day.nectarAdequacy === 1));
+  assert.equal(unmanaged.ecology.fedPerYear, 0);
+  assert.ok(unmanaged.summary.peakAdults < 1000);
+  assert.ok(unmanaged.diagnostics.warnings.some(text => text.includes('소멸')));
+  // A typical landscape stores enough on its own.
+  assert.equal(simulate({}, { ecology: { weatherRegime: 'typical', habitat: 0.7 } }).ecology.fedPerYear, 0);
+});
+
+test('managed colony size rises gradually with habitat instead of jumping from zero', () => {
+  const sizes = [0.3, 0.4, 0.5, 0.6, 0.7, 0.9].map(habitat =>
+    simulate({}, { ecology: { weatherRegime: 'drought', habitat, waterAccess: 0 } }).summary.meanAdults);
+  for (let i = 1; i < sizes.length; i++) assert.ok(sizes[i] >= sizes[i - 1], sizes.join(', '));
+  assert.ok(sizes[0] > 100 && sizes[2] > 3000, sizes.join(', '));
+});
+
+test('ecology mode computes nutrition itself instead of multiplying the exogenous proxy', () => {
+  const settings = { ecology: { weatherRegime: 'typical', habitat: 0.7 } };
+  assert.deepEqual(simulate({ nutrition: 0.5 }, settings).summary, simulate({ nutrition: 1 }, settings).summary);
+  assert.notDeepEqual(simulate({ nutrition: 0.5 }).summary, simulate({ nutrition: 1 }).summary);
+});

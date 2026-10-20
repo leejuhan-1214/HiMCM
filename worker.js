@@ -1,4 +1,4 @@
-import { sensitivity, uncertainty, morris } from './model.js?v=2.5.0';
+import { sensitivity, uncertainty, morris } from './model.js?v=2.6.0';
 const tasks = {
   sensitivity: (params, options) => sensitivity(params, options.metric, options.delta),
   uncertainty: (params, options) => uncertainty(params, options),

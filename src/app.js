@@ -1,6 +1,6 @@
-import { DEFAULTS, PARAM_META, PRESETS, POLLINATION_DEFAULTS, SENSITIVITY_KEYS, normalizeParams, simulate, pollination, sensitivity, uncertainty, morris } from './model.js?v=2.5.0';
-import { SOURCES, MODEL_NOTES, BLOG, REPORT_CHECKLIST } from './content.js?v=2.5.0';
-import { populationSVG, uncertaintySVG, pollinationSVG, coverageSVG } from './charts.js?v=2.5.0';
+import { DEFAULTS, PARAM_META, PRESETS, POLLINATION_DEFAULTS, SENSITIVITY_KEYS, normalizeParams, simulate, pollination, sensitivity, uncertainty, morris } from './model.js?v=2.6.0';
+import { SOURCES, MODEL_NOTES, BLOG, REPORT_CHECKLIST } from './content.js?v=2.6.0';
+import { populationSVG, uncertaintySVG, pollinationSVG, coverageSVG } from './charts.js?v=2.6.0';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
@@ -47,7 +47,7 @@ const titles = {
 let worker, jobId = 0;
 const jobs = new Map();
 try {
-  worker = new Worker(new URL('./worker.js?v=2.5.0', import.meta.url), { type:'module' });
+  worker = new Worker(new URL('./worker.js?v=2.6.0', import.meta.url), { type:'module' });
   worker.onmessage = ({data}) => {
     const job = jobs.get(data.id); if (!job) return;
     jobs.delete(data.id); data.error ? job.reject(new Error(data.error)) : job.resolve(data.result);

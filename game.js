@@ -1,5 +1,5 @@
-import { DEFAULTS, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate } from './model.js?v=2.5.0';
-import { createTimeline, deriveWorldState } from './world-state.js?v=2.5.0';
+import { DEFAULTS, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate } from './model.js?v=2.6.0';
+import { createTimeline, deriveWorldState } from './world-state.js?v=2.6.0';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -39,7 +39,7 @@ $('.world-overlay').insertAdjacentHTML('beforeend','<aside class="weather-observ
 $('.environment-panel .quality-setting').insertAdjacentHTML('beforebegin','<button id="jump-local-rain" class="wide-button" type="button">구역별 비가 다른 날 보기 <span>↗</span></button>');
 $('#jump-local-rain').insertAdjacentHTML('afterend','<p id="weather-cause-panel" class="setting-hint" aria-live="off"></p>');
 $('.quality-setting').insertAdjacentHTML('beforebegin','<div class="setting"><label for="habitat-quality">주변 꽃 서식지 <b id="habitat-quality-label">70%</b></label><input id="habitat-quality" type="range" min="50" max="110" value="70" step="5"><p class="setting-hint">농지 가장자리·야생화·꽃나무의 먹이량과 다양성에 대한 가상 대리변수</p></div>');
-$('.quality-setting').insertAdjacentHTML('beforebegin','<label class="control-label" for="landscape-structure">주변 경관 배치</label><select id="landscape-structure"><option value="mixed">연결된 혼합 경관</option><option value="flowerStrip">이어진 꽃길·초지</option><option value="fragmented">분절된 경작지</option></select><div class="setting"><label for="water-access">물 접근성 <b id="water-access-label">70%</b></label><input id="water-access" type="range" min="0" max="100" value="70" step="5"><p class="setting-hint">가뭄 해의 꽃·꿀 생산을 완충하는 가상 조건</p></div><div class="setting"><label for="pesticide-pressure">농약 노출 압력 <b id="pesticide-pressure-label">0%</b></label><input id="pesticide-pressure" type="range" min="0" max="100" value="0" step="5"><p class="setting-hint">작물 개화기 채집벌 사망 위험의 가상 스트레스 지수</p></div>');
+$('.quality-setting').insertAdjacentHTML('beforebegin','<label class="control-label" for="landscape-structure">주변 경관 배치</label><select id="landscape-structure"><option value="mixed">연결된 혼합 경관</option><option value="flowerStrip">이어진 꽃길·초지</option><option value="fragmented">분절된 경작지</option></select><div class="setting"><label for="water-access">물 접근성 <b id="water-access-label">70%</b></label><input id="water-access" type="range" min="0" max="100" value="70" step="5"><p class="setting-hint">가뭄 해의 꽃·꿀 생산을 완충하는 가상 조건</p></div><div class="setting"><label for="pesticide-pressure">농약 노출 압력 <b id="pesticide-pressure-label">0%</b></label><input id="pesticide-pressure" type="range" min="0" max="100" value="0" step="5"><p class="setting-hint">작물 개화기 채집벌 사망 위험의 가상 스트레스 지수</p></div><div class="setting"><label for="beekeeper-feeding">양봉가 먹이 보충 <b id="beekeeper-feeding-label">켜짐</b><input id="beekeeper-feeding" type="checkbox" checked style="accent-color:#718c59;width:15px;height:15px;cursor:pointer"></label><p class="setting-hint">수분용 관리 벌통의 표준 관리: 9월 15일 겨울 6개월분까지 설탕물 급여, 꿀 저장이 1주일분 아래면 2주일분까지 비상 급여. 끄면 관리하지 않은 군집이 됩니다.</p></div>');
 $('.camera-tools [data-camera="overview"] span:last-child').textContent='광역';
 $('.camera-tools [data-camera="overview"]').setAttribute('aria-label','넓은 경관 보기');
 $('.camera-tools [data-camera="overview"]').insertAdjacentHTML('afterend',`<button data-camera="farm" aria-label="농장 가까이 보기" aria-pressed="false"><span>${icon('pin')}</span><span>농장</span></button>`);
@@ -47,9 +47,11 @@ $('.honesty-note strong').textContent='자연의 연결을 단순화한 실험 �
 $('.honesty-note p').textContent='기상은 고정 시드의 가상 전선·소나기, 구역별 습기·지형 상승, 토양 물수지로 계산합니다. 화면에서 특정 구역을 누르면 왜 비가 오거나 오지 않는지 볼 수 있습니다. 이는 실제 일기예보나 관측 자료가 아닙니다. 벌·꽃·벌집 셀은 표본이며 저장량은 실제 kg이 아닌 상대 단위입니다.';
 $('#results-dialog .panel-note').textContent='한 군집의 일별 기대 개체수입니다. 선택한 연중 기후·서식지 조건이 꽃 자원과 먹이 저장을 거쳐 다음 세대에 영향을 줍니다. 현장 관측으로 보정된 예측은 아닙니다.';
 $('.world-footnote').textContent='HiMCM 2022 · 광역 경관은 설명용 배치 · 거리·노출 계수 미보정 · 벌과 꽃은 대표 표본';
-let params={...DEFAULTS}, farm={...POLLINATION_DEFAULTS}, weather='clear', scenario='baseline', habitat=0.7, structure='mixed', waterAccess=0.7, pesticidePressure=0;
-const ecologyOptions=()=>({weatherRegime:{clear:'typical',rain:'wet',drought:'drought'}[weather],bloomStart:farm.bloomStart,bloomDays:farm.bloomDays,habitat,structure,waterAccess,pesticidePressure});
-const runEcology=()=>simulate(params,{ecology:ecologyOptions()});
+let params={...DEFAULTS}, farm={...POLLINATION_DEFAULTS}, weather='clear', scenario='baseline', habitat=0.7, structure='mixed', waterAccess=0.7, pesticidePressure=0, feeding=true;
+const ecologyOptions=()=>({weatherRegime:{clear:'typical',rain:'wet',drought:'drought'}[weather],bloomStart:farm.bloomStart,bloomDays:farm.bloomDays,habitat,structure,waterAccess,pesticidePressure,feeding});
+// Landscape feedbacks take ~4 years to settle (stores, pollen, winter bees); show the settled year.
+const ECOLOGY_BURNIN=4;
+const runEcology=()=>simulate({...params,burninYears:Math.max(params.burninYears??2,ECOLOGY_BURNIN)},{ecology:ecologyOptions()});
 let result=runEcology(), world, frame, selection=null, routes=false, detail=false, toastTimer, lastTime=0, lastUI=0, rafId=0, disposed=false, returnToPlay=false, snapshotURL=null;
 const reduced=window.matchMedia('(prefers-reduced-motion: reduce)').matches;
 const timeline=createTimeline({day:130,hour:11,speed:.25,playing:!reduced});
@@ -108,7 +110,8 @@ function updateUI(){
   $('#supply-progress').style.width=`${(frame.pollinationRate||0)*100}%`;
   $('#world-status').textContent=!frame.inBloom?'작물 개화 전후에도 야생화·꽃나무의 먹이 자원은 변합니다.':frame.daylight===0?'밤에는 비행을 쉬어요. 위 비율은 하루 공급 기준이에요.':`한 벌통이 하루 수요의 ${fmt(frame.pollinationRate*100)}%를 담당할 수 있어요.`;
   $('#world-resource').textContent=`꽃 자원 ${fmt(frame.flowerResource*100)}% · 평균 채집 거리 ${fmt(frame.forageDistanceKm,1)} km · 채집 접근 ${fmt(frame.landscapeAccess*100)}%`;
-  $('#world-stressors').textContent=`물 ${fmt(frame.waterAccess*100)}% · 노출 ${fmt(frame.exposureIndex*100)}% → 꽃가루 저장 ${fmt(frame.pollenStore)} 단위`;
+  const fedYear=result.ecology?.fedPerYear??0, collapsed=result.summary.peakAdults<1000;
+  $('#world-stressors').textContent=`물 ${fmt(frame.waterAccess*100)}% · 노출 ${fmt(frame.exposureIndex*100)}% → 꽃가루 저장 ${fmt(frame.pollenStore)} 단위${feeding?` · 올해 급여 ${fmt(fedYear)} 단위`:''}${collapsed?' · 군집 소멸':''}`;
   const zoneNames={hive:'벌통',meadow:'초지',orchard:'과수원',woodland:'숲 능선',crop:'경작지',village:'마을'};
   const raining=Object.entries(frame.zoneRainNow).filter(([,amount])=>amount>0.10).map(([key])=>zoneNames[key]);
   const snowing=Object.entries(frame.zoneSnowNow).filter(([,amount])=>amount>0.10).map(([key])=>zoneNames[key]);
@@ -195,6 +198,7 @@ $('#habitat-quality').addEventListener('input',e=>{habitat=Number(e.target.value
 $('#landscape-structure').addEventListener('change',e=>{structure=e.target.value;result=runEcology();makeSparkline();refreshFrame();updateUI();toast('경관 연결을 바꿔 채집과 군집을 다시 계산했어요.');});
 $('#water-access').addEventListener('input',e=>{waterAccess=Number(e.target.value)/100;$('#water-access-label').textContent=`${e.target.value}%`;result=runEcology();makeSparkline();refreshFrame();updateUI();});
 $('#pesticide-pressure').addEventListener('input',e=>{pesticidePressure=Number(e.target.value)/100;$('#pesticide-pressure-label').textContent=`${e.target.value}%`;result=runEcology();makeSparkline();refreshFrame();updateUI();});
+$('#beekeeper-feeding').addEventListener('change',e=>{feeding=e.target.checked;$('#beekeeper-feeding-label').textContent=feeding?'켜짐':'꺼짐';result=runEcology();makeSparkline();refreshFrame();updateUI();toast(feeding?'양봉가가 가을·비상 급여를 합니다.':'먹이 보충 없이, 관리하지 않은 군집으로 계산합니다.');});
 $('#world-scenario').addEventListener('change',e=>{scenario=e.target.value;params={...PRESETS[scenario]};result=runEcology();makeSparkline();refreshFrame();updateUI();updateLabLink();toast('군집 조건을 바꾸고 같은 시간에서 비교합니다.');});
 $('#world-quality').addEventListener('change',e=>{world?.setQuality(e.target.value);});
 document.addEventListener('keydown',e=>{
@@ -228,7 +232,7 @@ async function start(){
   }catch{toast('공유 설정을 읽지 못해 기준 군집을 사용합니다.');}
   makeSparkline();updateBloomUI();refreshFrame();updateUI();
   try{
-    const {createWorld}=await import('./world.js?v=2.5.0');world=createWorld($('#world'),{onSelect:selectObject});
+    const {createWorld}=await import('./world.js?v=2.6.0');world=createWorld($('#world'),{onSelect:selectObject});
     if(innerWidth<600){world.setQuality('low');$('#world-quality').value='low';}
     world.update(frame,0);$('#world-loading').classList.add('done');setTimeout(()=>$('#world-loading').hidden=true,600);rafId=requestAnimationFrame(animate);
   }catch(error){

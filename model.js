@@ -54,7 +54,7 @@ export const PARAM_META = [
   { key: 'peakDay', label: '산란 성수기 중심', unit: '연중 일', min: 90, max: 240, step: 1, source: '', status: '북반구 온대 가상 기후 · 1월 1일=1' },
   { key: 'seasonPower', label: '계절 곡선 집중도', unit: '지수', min: 0.5, max: 3, step: 0.1, source: '', status: '가정 · 클수록 성수기에 집중' },
   { key: 'socialInhibition', label: '사회적 억제 강도', unit: '무차원', min: 0, max: 1.5, step: 0.05, source: KHOURY, status: '선행 모델에서 착안 · 동일 수식/단위 아님' },
-  { key: 'nutrition', label: '미성숙 단계 영양 조건', unit: '비율', min: 0.4, max: 1, step: 0.05, source: 'https://doi.org/10.1371/journal.pone.0059084', status: '가정 · 단계 생존율에 곱함, 먹이 저장량은 미구현' },
+  { key: 'nutrition', label: '미성숙 단계 영양 조건', unit: '비율', min: 0.4, max: 1, step: 0.05, source: 'https://doi.org/10.1371/journal.pone.0059084', status: '가정 · 단계 생존율에 곱함. 3D 생태 모드에서는 꽃가루 저장으로 계산한 영양이 대신함' },
   { key: 'burninYears', label: '예열 기간', unit: '년', min: 0, max: 5, step: 1, source: '', status: '수치적 설정 · 주기 수렴을 보장하지 않음' },
 ];
 
@@ -87,6 +87,10 @@ const OPEN_DRONE_LARVA_DAYS = 7;
 // Steepness of the nursing-load switch; a steep Hill curve encodes the threshold-like
 // rise of long-lived workers as brood rearing winds down. A function choice, not a fit.
 const WINTER_HILL = 4;
+// Ecology extension: standard beekeeper feeding of a managed pollination hive (ration units).
+// Autumn top-up to ~6 months of broodless-cluster consumption, plus emergency feeding whenever
+// reserves drop below one week. Management rules, not biology; switch off with feeding:false.
+const FEEDING = { autumnDoy: 258, winterReserveDays: 180, emergencyDays: 7, emergencyTopUpDays: 14 };
 const sum = array => {
   let total = 0;
   for (let i = 0; i < array.length; i++) total += array[i];
@@ -254,6 +258,19 @@ function foodDay(state, food, p, day, options) {
   };
 }
 
+/** Beekeeper feeding for the next day; returns the topped-up stores and the amount fed. */
+function beekeeperFeeding(state, food, p, day) {
+  const season = seasonal(day, p);
+  const adults = sum(state.H) + sum(state.W) + state.F + state.D;
+  const brood = sum(state.B) + sum(state.DB);
+  const dailyNeed = adults / 1000 * (0.28 + 0.72 * season.activity) + brood / 1000 * 0.35;
+  let target = 0;
+  if (season.doy === FEEDING.autumnDoy) target = adults / 1000 * 0.28 * FEEDING.winterReserveDays;
+  if (food.nectar < dailyNeed * FEEDING.emergencyDays) target = Math.max(target, dailyNeed * FEEDING.emergencyTopUpDays);
+  const fed = Math.max(0, Math.min(2500, target) - food.nectar);
+  return { food: { ...food, nectar: food.nectar + fed }, fed };
+}
+
 function initialize(p) {
   const state = {
     E: new Float64Array(3), B: new Float64Array(18),
@@ -305,7 +322,9 @@ function stepState(state, p, time, ecology = null, maturity = maturityCurve(p)) 
   const season = seasonal(time, p);
   const nextBirth = acceptedLaying(p, state, time + 1, ecology?.layingFactor ?? 1);
   const se = p.eggSurvival ** (1 / 3);
-  const effectiveNutrition = p.nutrition * (ecology?.nutritionFactor ?? 1);
+  // p.nutrition is an exogenous stand-in for food the basic model does not track. The
+  // ecology extension computes nutrition from pollen stores, so it replaces (not multiplies) it.
+  const effectiveNutrition = ecology ? ecology.nutritionFactor : p.nutrition;
   const sb = clamp(p.broodSurvival * effectiveNutrition, 0, 1) ** (1 / 18);
   // Drone brood duration 21 days after hatching. Same stage survival is an assumption.
   const sd = clamp(p.broodSurvival * effectiveNutrition, 0, 1) ** (1 / 21);
@@ -455,6 +474,9 @@ export function simulate(input = {}, options = {}) {
   const maturity = maturityCurve(p);
   let state = initialize(p);
   let food = { nectar: 950, pollen: 180 };
+  const feeding = ecological && ecologyOptions.feeding !== false;
+  let lastFed = 0;
+  let totalFed = 0;
   let maxMassBalanceError = 0;
   let lastFlows = { deaths: 0, emerged: 0, droneEmerged: 0, recruits: 0, winterRecruits: 0, ...acceptedLaying(p, state, 0) };
   let previousYear = [];
@@ -473,7 +495,7 @@ export function simulate(input = {}, options = {}) {
       workerAdults: workers,
       longLivedShare: workers > 0 ? sum(state.W) / workers : 0,
       ...(environment ? {
-        nectarStore: food.nectar, pollenStore: food.pollen,
+        nectarStore: food.nectar, pollenStore: food.pollen, fedNectar: lastFed,
         nectarCollected: environment.nectarCollected, pollenCollected: environment.pollenCollected,
         nectarAdequacy: environment.nectarAdequacy, pollenAdequacy: environment.pollenAdequacy,
         nutritionFactor: environment.nutritionFactor, flowerResource: environment.flowerResource,
@@ -494,7 +516,16 @@ export function simulate(input = {}, options = {}) {
     const step = stepState(state, p, t, environment, maturity);
     if (t >= burnin && t < burnin + YEAR) rateLog.push(step.rates);
     state = step.state;
-    if (environment) food = environment.food;
+    if (environment) {
+      food = environment.food;
+      lastFed = 0;
+      if (feeding) {
+        const fed = beekeeperFeeding(state, food, p, t + 1);
+        food = fed.food;
+        lastFed = fed.fed;
+        if (t >= burnin && t < burnin + YEAR) totalFed += fed.fed;
+      }
+    }
     lastFlows = step.flows;
     maxMassBalanceError = Math.max(maxMassBalanceError, Math.abs(step.flows.massBalanceError));
   }
@@ -541,7 +572,7 @@ export function simulate(input = {}, options = {}) {
     days,
     summary,
     params: p,
-    ecology: ecological ? { ...ecologyOptions, storeUnit: '1,000 summer-adult daily ration equivalent', calibrated: false } : null,
+    ecology: ecological ? { ...ecologyOptions, feeding, fedPerYear: totalFed, storeUnit: '1,000 summer-adult daily ration equivalent', calibrated: false } : null,
     diagnostics: {
       maxMassBalanceError, cycleDifference, converged: cycleDifference === null ? null : cycleDifference <= 0.05,
       warmupDays: burnin, warnings, patterns, lifespans,
