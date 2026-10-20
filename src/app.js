@@ -1,14 +1,16 @@
-import { DEFAULTS, PARAM_META, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate, pollination, sensitivity, uncertainty } from './model.js';
-import { SOURCES, MODEL_NOTES, BLOG, REPORT_CHECKLIST } from './content.js';
-import { populationSVG, uncertaintySVG, pollinationSVG } from './charts.js';
+import { DEFAULTS, PARAM_META, PRESETS, POLLINATION_DEFAULTS, SENSITIVITY_KEYS, normalizeParams, simulate, pollination, sensitivity, uncertainty, morris } from './model.js?v=2.5.0';
+import { SOURCES, MODEL_NOTES, BLOG, REPORT_CHECKLIST } from './content.js?v=2.5.0';
+import { populationSVG, uncertaintySVG, pollinationSVG, coverageSVG } from './charts.js?v=2.5.0';
 
 const $ = selector => document.querySelector(selector);
 const $$ = selector => [...document.querySelectorAll(selector)];
 const number = (value, digits = 0) => Number.isFinite(value) ? value.toLocaleString('ko-KR', { maximumFractionDigits: digits }) : '산정 불가';
 const escape = value => String(value).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const date = day => new Date(Date.UTC(2022, 0, day + 1)).toLocaleDateString('ko-KR', { timeZone: 'UTC', month: 'long', day: 'numeric' });
-const colors = { hiveBees:'#477452',foragers:'#d6a83d',drones:'#78949f',eggs:'#92afb9',brood:'#d59877',adults:'#293e30' };
-const names = { eggs:'알',brood:'유충·번데기',hiveBees:'내근벌',foragers:'채집벌',drones:'수벌',adults:'전체 성충' };
+const colors = { hiveBees:'#477452',winterBees:'#6b5b95',foragers:'#d6a83d',drones:'#78949f',eggs:'#92afb9',brood:'#d59877',adults:'#293e30' };
+const names = { eggs:'알',brood:'유충·번데기',hiveBees:'내근벌',winterBees:'그중 겨울벌',foragers:'채집벌',drones:'수벌',adults:'전체 성충' };
+const ADULT_SERIES = ['adults','hiveBees','winterBees','foragers','drones'];
+const ALL_SERIES = ['adults','eggs','brood','hiveBees','winterBees','foragers','drones'];
 const iconPaths = {
   grid:'<rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/>',
   sliders:'<path d="M5 3v18M12 3v18M19 3v18"/><path d="M2 8h6M9 16h6M16 8h6" stroke-width="4"/>',
@@ -30,8 +32,8 @@ const iconPaths = {
 const icon = name => `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${iconPaths[name] || iconPaths.hex}</svg>`;
 function icons(root = document) { root.querySelectorAll('[data-icon]').forEach(el => { el.innerHTML = icon(el.dataset.icon); }); }
 let params = { ...DEFAULTS }, farm = { ...POLLINATION_DEFAULTS }, result, poll, baseline;
-let view = 'overview', mode = 'adults', selectedDay = 170, visible = ['adults','hiveBees','foragers','drones'];
-let metric = 'meanAdults', delta = .1, sensitivityRows = null, analysisSignature = '', generation = 0;
+let view = 'overview', mode = 'adults', selectedDay = 170, visible = [...ADULT_SERIES];
+let metric = 'meanAdults', delta = .1, sensitivityRows = null, analysisSignature = '', generation = 0, morrisResult = null;
 let timer, playTimer, toastTimer;
 const meta = Object.fromEntries(PARAM_META.map(p => [p.key,p]));
 const titles = {
@@ -45,7 +47,7 @@ const titles = {
 let worker, jobId = 0;
 const jobs = new Map();
 try {
-  worker = new Worker(new URL('./worker.js', import.meta.url), { type:'module' });
+  worker = new Worker(new URL('./worker.js?v=2.5.0', import.meta.url), { type:'module' });
   worker.onmessage = ({data}) => {
     const job = jobs.get(data.id); if (!job) return;
     jobs.delete(data.id); data.error ? job.reject(new Error(data.error)) : job.resolve(data.result);
@@ -53,7 +55,7 @@ try {
   worker.onerror = () => { jobs.forEach(j => j.reject(new Error('분석 작업을 실행하지 못했습니다. 새로고침 후 다시 시도해 주세요.'))); jobs.clear(); worker?.terminate(); worker = null; };
 } catch { worker = null; }
 function analyze(task, options) {
-  if (!worker) return new Promise((resolve,reject) => setTimeout(() => { try { resolve(task === 'sensitivity' ? sensitivity(params, options.metric, options.delta) : uncertainty(params, options)); } catch(e) { reject(e); } }, 30));
+  if (!worker) return new Promise((resolve,reject) => setTimeout(() => { try { resolve(task === 'sensitivity' ? sensitivity(params, options.metric, options.delta) : task === 'morris' ? morris(params, options) : uncertainty(params, options)); } catch(e) { reject(e); } }, 30));
   return new Promise((resolve,reject) => { const id = ++jobId; jobs.set(id,{resolve,reject}); worker.postMessage({id,task,params,options}); });
 }
 function toast(message) { $('#toast').textContent = message; $('#toast').classList.add('show'); clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 4000); }
@@ -71,30 +73,35 @@ function stat(label, value, unit, note, symbol) {
 }
 function run() {
   clearTimeout(timer); params = normalizeParams({...params,years:1}); const start = performance.now();
-  result = simulate(params); poll = pollination(result,farm); generation++; sensitivityRows = null; analysisSignature = '';
+  result = simulate(params); poll = pollination(result,farm); generation++; sensitivityRows = null; analysisSignature = ''; morrisResult = null;
   renderOverview(); renderPollination(); renderMethod(); renderBlog();
   $('#run-note').textContent = `365일 계산 완료 · ${Math.round(performance.now()-start)} ms · 예열 ${params.burninYears}년`;
   if(view==='sensitivity') renderSensitivity();
 }
 function renderOverview() {
   const s = result.summary;
-  $('#stats').innerHTML = stat('연중 최대 성충',number(s.peakAdults),'마리',`<span>${date(s.peakDay-1)}</span> H + F + 수벌`, 'chart')
+  $('#stats').innerHTML = stat('연중 최대 성충',number(s.peakAdults),'마리',`<span>${date(s.peakDay-1)}</span> H+W + F + 수벌`, 'chart')
     + stat('연평균 성충',number(s.meanAdults),'마리','<span>365일</span> 일별 성충 수의 평균','hex')
     + stat('채집 활동량',number(s.activeForagerDays/10000,1),'만 벌·일','<span>계절 반영</span> Σ F × 활동률','flower')
-    + stat('필요 벌통',number(poll.hives),'개',`<span>일별 수요</span> ${number(farm.area)} m² · 예시 조건`,'grid');
-  $('#insight-title').textContent = result.diagnostics.warnings.length ? '현재 설정에서 확인할 점' : '꽃이 피는 시기와 채집벌의 시기를 함께 보세요.';
-  $('#insight-text').textContent = result.diagnostics.warnings.join(' ') || `산란 성수기는 ${date(params.peakDay-1)}, 성충이 가장 많은 날은 ${date(s.peakDay-1)}입니다. 성장 지연이 만드는 시차도 수분 계획에 중요합니다.`;
+    + stat('필요 벌통',number(poll.coverage.hives),'개',`<span>꽃 ${number(poll.coverage.target*100)}% 충족</span> 무작위 방문 · 평균 기준 ${number(poll.hives)}개`,'grid');
+  // The first two warnings are standing caveats shown elsewhere; only scenario-specific ones go here.
+  const extra = result.diagnostics.warnings.slice(2);
+  const life = result.diagnostics.lifespans;
+  $('#insight-title').textContent = extra.length ? '현재 설정에서 확인할 점' : '여름에 태어난 벌과 가을에 태어난 벌은 다른 삶을 삽니다.';
+  $('#insight-text').textContent = extra.join(' ') || (life.june && life.october
+    ? `6월 중순에 우화한 일벌은 평균 ${number(life.june.mean)}일, 10월 중순에 우화한 일벌은 평균 ${number(life.october.mean)}일(상위 10%는 ${number(life.october.p90)}일 이상)을 삽니다. 돌볼 애벌레가 줄어드는 가을에 태어난 벌이 바깥일을 미루는 장수형 겨울벌이 되기 때문입니다. 성충이 가장 많은 날은 ${date(s.peakDay-1)}, 가장 적은 날은 ${date(s.troughDay-1)}입니다.`
+    : `산란 성수기는 ${date(params.peakDay-1)}, 성충이 가장 많은 날은 ${date(s.peakDay-1)}입니다.`);
   renderLegend(); renderChart(); renderDay();
 }
 function renderLegend() {
-  const keys = mode==='all' ? ['adults','eggs','brood','hiveBees','foragers','drones'] : ['adults','hiveBees','foragers','drones'];
+  const keys = mode==='all' ? ALL_SERIES : ADULT_SERIES;
   $('#chart-legend').innerHTML = keys.map(k => `<button data-series="${k}" class="${visible.includes(k)?'':'off'}" aria-pressed="${visible.includes(k)}"><i class="dot" style="background:${colors[k]}"></i>${names[k]}</button>`).join('');
 }
 function chartOptions() { return {mode,visible,baseline:$('#compare-toggle').checked ? baseline : null,selectedDay,bloom:{start:farm.bloomStart,days:farm.bloomDays}}; }
 function renderChart() { $('#population-chart').innerHTML = populationSVG(result,chartOptions()); }
 function renderDay() {
   const row = result.days[selectedDay]; $('#current-date').textContent = `${date(selectedDay)} · Day ${selectedDay+1}`; $('#day-slider').value = selectedDay;
-  $('#life-stages').innerHTML = ['eggs','brood','hiveBees','foragers','drones'].map((k,i) => `<div class="life-stage"><div class="life-stage-icon">${icon(['egg','hex','grid','flower','hex'][i])}</div><div class="life-stage-label">${names[k]} ${['E','L','H','F','D'][i]}</div><div class="life-stage-value">${number(row[k])}<small>마리</small></div></div>`).join('');
+  $('#life-stages').innerHTML = ['eggs','brood','hiveBees','foragers','drones'].map((k,i) => `<div class="life-stage"><div class="life-stage-icon">${icon(['egg','hex','grid','flower','hex'][i])}</div><div class="life-stage-label">${names[k]} ${['E','L','H+W','F','D'][i]}</div><div class="life-stage-value">${number(row[k])}<small>마리</small></div>${k==='hiveBees'?`<div class="life-stage-sub">겨울벌 W ${number(row.winterBees)}</div>`:''}</div>`).join('');
 }
 function navigate(next) {
   if(!titles[next]) return; view = next; stopPlaying();
@@ -115,7 +122,8 @@ async function getSensitivity() {
 const metricNames={meanAdults:'年평균 성충 수',peakAdults:'최대 성충 수',minAdults:'최소 성충 수',foragerDays:'누적 채집벌·일'};
 async function renderSensitivity() {
   const stamp=generation, requestedMetric=metric, requestedDelta=delta;
-  $('#sensitivity-view').innerHTML = `<div class="analysis-header"><div><h2>무엇이 군집을 움직일까요?</h2><p>다른 조건은 유지하고 한 변수씩 바꿉니다. 막대는 출력 변화율, 오른쪽은 실제 입력 변화율로 정규화한 탄력성입니다.</p></div><span class="pill">LOCAL SENSITIVITY</span></div><div class="analysis-grid"><section class="card"><div class="section-kicker">ONE FACTOR AT A TIME</div><h2>변화에 대한 반응</h2><div class="select-row"><label>비교할 출력<select id="metric-select">${Object.entries(metricNames).map(([k,v])=>`<option value="${k}" ${k===metric?'selected':''}>${v.replace('年','연')}</option>`).join('')}</select></label><label>입력 변화 범위<select id="delta-select">${[.05,.1,.2].map(v=>`<option value="${v}" ${v===delta?'selected':''}>±${v*100}%</option>`).join('')}</select></label></div><div id="tornado-output" class="uncertainty-placeholder"><span class="loader"></span>8개 변수를 비교하고 있습니다</div><div class="legend-key"><span><i class="dot amber"></i>입력 감소</span><span><i class="dot green"></i>입력 증가</span></div><div class="note-box">확률은 0–1 범위를 벗어나지 않도록 제한합니다. 입력 경계에 닿으면 실제 증감 폭을 표시합니다. 산란·단계 생존율의 근접한 순위는 곱셈 구조의 영향일 수 있습니다.</div></section><section class="card"><div class="section-kicker">READ THE RESULT</div><h2>결과를 읽는 방법</h2><div id="sensitivity-summary"><p class="analysis-label">분석 중</p></div><div class="note-box"><b>국소 민감도 ≠ 원인 규명</b><br>순위는 현재 시나리오·출력·변화 범위에만 적용됩니다. 기준 출력이 0이면 비율과 탄력성을 정의하지 않습니다.</div></section></div><section class="card uncertainty-card"><div class="card-heading"><div><div class="section-kicker">UNCERTAINTY EXPLORER</div><h2>여러 가정이 함께 달라진다면</h2></div><button id="uncertainty-btn" class="button quiet">64개 시나리오 계산</button></div><div id="uncertainty-output" class="uncertainty-placeholder">변수 8개를 동시에 ±10% 변화시켜 보세요.</div><p>독립 균등분포 · seed 2022 · P10–P90 시나리오 범위. 관측 자료에서 추정한 신뢰구간이 아닙니다.</p></section>`;
+  $('#sensitivity-view').innerHTML = `<div class="analysis-header"><div><h2>무엇이 군집을 움직일까요?</h2><p>다른 조건은 유지하고 한 변수씩 바꿉니다. 막대는 출력 변화율, 오른쪽은 실제 입력 변화율로 정규화한 탄력성입니다.</p></div><span class="pill">LOCAL SENSITIVITY</span></div><div class="analysis-grid"><section class="card"><div class="section-kicker">ONE FACTOR AT A TIME</div><h2>변화에 대한 반응</h2><div class="select-row"><label>비교할 출력<select id="metric-select">${Object.entries(metricNames).map(([k,v])=>`<option value="${k}" ${k===metric?'selected':''}>${v.replace('年','연')}</option>`).join('')}</select></label><label>입력 변화 범위<select id="delta-select">${[.05,.1,.2].map(v=>`<option value="${v}" ${v===delta?'selected':''}>±${v*100}%</option>`).join('')}</select></label></div><div id="tornado-output" class="uncertainty-placeholder"><span class="loader"></span>${SENSITIVITY_KEYS.length}개 변수를 비교하고 있습니다</div><div class="legend-key"><span><i class="dot amber"></i>입력 감소</span><span><i class="dot green"></i>입력 증가</span></div><div class="note-box">확률은 0–1 범위를 벗어나지 않도록 제한합니다. 입력 경계에 닿으면 실제 증감 폭을 표시합니다. 산란·단계 생존율의 근접한 순위는 곱셈 구조의 영향일 수 있습니다.</div></section><section class="card"><div class="section-kicker">READ THE RESULT</div><h2>결과를 읽는 방법</h2><div id="sensitivity-summary"><p class="analysis-label">분석 중</p></div><div class="note-box"><b>국소 민감도 ≠ 원인 규명</b><br>순위는 현재 시나리오·출력·변화 범위에만 적용됩니다. 기준 출력이 0이면 비율과 탄력성을 정의하지 않습니다.</div></section></div><section class="card uncertainty-card"><div class="card-heading"><div><div class="section-kicker">UNCERTAINTY EXPLORER</div><h2>여러 가정이 함께 달라진다면</h2></div><button id="uncertainty-btn" class="button quiet">64개 시나리오 계산</button></div><div id="uncertainty-output" class="uncertainty-placeholder">변수 ${SENSITIVITY_KEYS.length}개를 동시에 ±10% 변화시켜 보세요.</div><p>독립 균등분포 · seed 2022 · P10–P90 시나리오 범위. 관측 자료에서 추정한 신뢰구간이 아닙니다.</p></section><section class="card uncertainty-card"><div class="card-heading"><div><div class="section-kicker">GLOBAL SCREENING · MORRIS</div><h2>다른 조건에서도 같은 변수가 중요할까요?</h2></div><button id="morris-btn" class="button quiet">Morris 선별 계산</button></div><div id="morris-output" class="uncertainty-placeholder">${morrisResult && morrisResult.metric===metric ? '' : `모든 변수를 ±20% 범위의 4단계 격자에서 함께 움직이며, 각 변수의 효과를 서로 다른 10개 조건에서 잽니다 (${10*(SENSITIVITY_KEYS.length+1)+1}회 계산).`}</div><p>μ*는 효과 크기의 평균(순위 기준), σ는 다른 변수 값에 따라 그 효과가 흔들리는 정도입니다. σ/μ*가 크면 비선형이거나 다른 변수와 상호작용한다는 신호이지만, 어떤 변수와인지는 알려 주지 않습니다. 분산 분해(Sobol) 지수가 아닙니다.</p></section>`;
+  if(morrisResult && morrisResult.metric===metric) { $('#morris-output').className=''; $('#morris-output').innerHTML=morrisHTML(morrisResult); }
   try {
     const rows=await getSensitivity(); if(stamp!==generation || requestedMetric!==metric || requestedDelta!==delta || !$('#tornado-output')) return;
     const max=Math.max(1,...rows.flatMap(r=>[Math.abs(r.lowChange||0),Math.abs(r.highChange||0)]));
@@ -129,6 +137,11 @@ async function renderSensitivity() {
   } catch(e) { if($('#tornado-output')) $('#tornado-output').textContent=e.message; }
 }
 
+function morrisHTML(m) {
+  const max=Math.max(1e-9,...m.rows.map(r=>Math.max(r.muStar??0,r.sigma??0)));
+  return `<div class="tornado">${m.rows.map(r=>`<div class="tornado-row"><div class="tornado-label">${r.label}<small>μ* ${r.muStar===null?'—':number(r.muStar,2)} · σ ${r.sigma===null?'—':number(r.sigma,2)}</small></div><div class="tornado-bars morris-bars"><span class="tornado-bar high" title="μ* ${number(r.muStar,3)}" style="left:0;width:${(r.muStar??0)/max*98}%"></span><span class="tornado-bar" title="σ ${number(r.sigma,3)}" style="left:0;width:${(r.sigma??0)/max*98}%"></span></div><div class="tornado-elasticity" title="σ/μ*">${r.ratio===null?'—':number(r.ratio,2)}</div></div>`).join('')}</div><div class="legend-key"><span><i class="dot green"></i>μ* 영향 크기</span><span><i class="dot amber"></i>σ 조건에 따른 흔들림</span><span>오른쪽 숫자 σ/μ*</span></div><p class="analysis-label">${number(m.runs)}회 계산 · 출력 ${metricNames[m.metric].replace('年','연')} · 범위 ±${number(m.spread*100)}% · seed ${m.seed}. 효과는 (출력 변화율)/(입력 변화율)로 정규화했습니다.</p>`;
+}
+
 const FARM_META = [
   {key:'area',label:'농장 면적',unit:'m²',min:4050,max:202500,step:4050},
   {key:'bloomStart',label:'개화 시작일',unit:'연중 일',min:1,max:365,step:1},
@@ -140,36 +153,46 @@ const FARM_META = [
   {key:'cropShare',label:'목표 작물 방문 비율',unit:'비율',min:0,max:1,step:.05},
   {key:'efficiency',label:'방문의 유효 비율',unit:'비율',min:0,max:1,step:.05},
   {key:'naturalShare',label:'다른 수분매개자의 기여',unit:'비율',min:0,max:1,step:.05},
-  {key:'reserve',label:'수요 안전 여유',unit:'비율',min:0,max:.5,step:.05},
+  {key:'reserve',label:'수요 안전 여유 (평균 기준)',unit:'비율',min:0,max:.5,step:.05},
+  {key:'coverageTarget',label:'필요 방문을 채울 꽃의 목표 비율',unit:'비율',min:.5,max:.99,step:.01},
 ];
 function farmArt(count) {
   const bees=Number.isFinite(count)?Math.min(12,count):0;
   return `<svg viewBox="0 0 640 235" role="img" aria-label="농장과 벌통의 개념도"><defs><pattern id="crop-rows" width="31" height="31" patternUnits="userSpaceOnUse"><path d="M0 15h31" stroke="#c0d3a2" stroke-width="10"/><path d="M10 11v8m11-8v8" stroke="#f5f7e8" stroke-width="1.5"/></pattern></defs><g transform="translate(321 103) rotate(-14) skewX(19)"><rect x="-184" y="-62" width="368" height="138" rx="7" fill="#dfE8ca" stroke="#c5d3af" stroke-width="12"/><rect x="-168" y="-49" width="336" height="112" fill="url(#crop-rows)"/><path d="M0-48V64" stroke="#f4edd6" stroke-width="13"/></g>${Array.from({length:bees},(_,i)=>{const x=132+i*31,y=190;return `<g transform="translate(${x} ${y})"><path d="m0 0 12-6 13 6v19l-13 6-12-6Z" fill="#dcb257"/><path d="m0 0 12 6 13-6M12 6v19M0 7l12 6 13-6" fill="none" stroke="#b68d35"/><path d="m15 17 5-2" stroke="#5b613e" stroke-width="3"/></g>`;}).join('')}</svg>`;
 }
 function renderPollination() {
-  $('#pollination-view').innerHTML=`<div class="analysis-header"><div><h2>면적만으로 벌통 수를 정할 수는 없습니다.</h2><p>성충 전체가 아닌 실제 활동 가능한 채집벌로 계산합니다. 입력은 가상의 농장 조건이며, 작물과 지역 자료로 보정해야 합니다.</p></div><span class="pill">20 ACRES → 81,000 m²</span></div><div class="pollination-grid"><section class="card farm-settings"><div class="card-heading"><div><div class="section-kicker">THE FIELD</div><h2>농장과 개화 조건</h2></div></div>${FARM_META.slice(0,6).map(p=>control(p,farm[p.key],'farm')).join('')}<details class="advanced"><summary>활동률과 유효 방문 설정 <span>+</span></summary><div>${FARM_META.slice(6).map(p=>control(p,farm[p.key],'farm')).join('')}</div></details><p class="farm-footnote">꽃 밀도와 방문 요구량은 모두 하루 기준입니다. 총 꽃 수를 개화일수로 다시 나누지 않습니다.</p></section><div><section class="card farm-display"><div class="farm-summary"><div><div class="section-kicker">POLLINATION PLAN</div><h2>개화기의 매일을 충족하려면</h2><p id="bloom-label"></p></div><div id="hive-result" class="hive-result"></div></div><div class="field-illustration"><span class="field-corner">A LITTLE FIELD, A BIG CONNECTION</span><div id="farm-art"></div><span class="field-caption">배치 최적화가 아닌 개념도</span></div><div id="poll-metrics" class="metric-list"></div><div class="formula">벌통 수 = ⌈ max<sub>개화일</sub> (일별 방문 수요 ÷ 한 벌통의 유효 공급) ⌉</div><p id="poll-warning" class="farm-footnote"></p></section><section class="card" style="margin-top:22px"><div class="card-heading"><div><div class="section-kicker">DEMAND & CAPACITY</div><h2>하루의 수요와 공급</h2></div></div><div id="poll-chart" class="chart-container"></div></section><section class="card benchmark"><h3>현장의 경험값과 나란히 보기</h3><p>OSU Extension의 태평양 북서부 평균 사용량. 표준 20에이커 기준이며, 계산 결과에 맞추는 목표값은 아닙니다.</p><div class="benchmark-grid"><div class="benchmark-item">사과<strong>10<small>벌통</small></strong>0.5 / acre</div><div class="benchmark-item">체리<strong>40<small>벌통</small></strong>2 / acre</div><div class="benchmark-item">블루베리<strong>60<small>벌통</small></strong>3 / acre</div></div><p><a href="${SOURCES.find(s=>s.id==='osu').url}" target="_blank" rel="noopener">군집 강도·지역·작물별 권고의 원문 보기 ↗</a></p></section></div></div>`;
+  $('#pollination-view').innerHTML=`<div class="analysis-header"><div><h2>면적만으로 벌통 수를 정할 수는 없습니다.</h2><p>성충 전체가 아닌 실제 활동 가능한 채집벌로 계산합니다. 입력은 가상의 농장 조건이며, 작물과 지역 자료로 보정해야 합니다.</p></div><span class="pill">20 ACRES → 81,000 m²</span></div><div class="pollination-grid"><section class="card farm-settings"><div class="card-heading"><div><div class="section-kicker">THE FIELD</div><h2>농장과 개화 조건</h2></div></div>${FARM_META.slice(0,6).map(p=>control(p,farm[p.key],'farm')).join('')}<details class="advanced"><summary>활동률과 유효 방문 설정 <span>+</span></summary><div>${FARM_META.slice(6).map(p=>control(p,farm[p.key],'farm')).join('')}</div></details><p class="farm-footnote">꽃 밀도와 방문 요구량은 모두 하루 기준입니다. 총 꽃 수를 개화일수로 다시 나누지 않습니다.</p></section><div><section class="card farm-display"><div class="farm-summary"><div><div class="section-kicker">POLLINATION PLAN</div><h2>개화기의 매일, 꽃 하나하나까지</h2><p id="bloom-label"></p></div><div id="hive-result" class="hive-result"></div></div><div class="field-illustration"><span class="field-corner">A LITTLE FIELD, A BIG CONNECTION</span><div id="farm-art"></div><span class="field-caption">배치 최적화가 아닌 개념도</span></div><div id="poll-metrics" class="metric-list"></div><div class="formula">무작위 방문: 벌통 수 = ⌈ max<sub>개화일</sub> (꽃 수 × (λ<sub>k,τ</sub> − 다른 수분매개자 방문) ÷ 한 벌통의 유효 공급) ⌉<br><small>λ<sub>k,τ</sub>: 포아송 방문에서 꽃의 τ가 하루 k회 이상 방문받는 평균 방문 수 · 평균 기준은 λ 대신 k × (1+여유)</small></div><p id="poll-warning" class="farm-footnote"></p></section><section class="card" style="margin-top:22px"><div class="card-heading"><div><div class="section-kicker">EVERY FLOWER COUNTS</div><h2>벌통을 늘리면 몇 %의 꽃이 충분히 방문받을까요</h2><p>평균 방문량이 요구량과 같아도, 방문은 꽃마다 고르게 나뉘지 않습니다.</p></div></div><div id="coverage-chart" class="chart-container"></div></section><section class="card" style="margin-top:22px"><div class="card-heading"><div><div class="section-kicker">DEMAND & CAPACITY</div><h2>하루의 수요와 공급</h2></div></div><div id="poll-chart" class="chart-container"></div></section><section class="card benchmark"><h3>현장의 경험값과 나란히 보기</h3><p>OSU Extension의 태평양 북서부 평균 사용량. 표준 20에이커 기준이며, 계산 결과에 맞추는 목표값은 아닙니다.</p><div class="benchmark-grid"><div class="benchmark-item">사과<strong>10<small>벌통</small></strong>0.5 / acre</div><div class="benchmark-item">체리<strong>40<small>벌통</small></strong>2 / acre</div><div class="benchmark-item">블루베리<strong>60<small>벌통</small></strong>3 / acre</div></div><p><a href="${SOURCES.find(s=>s.id==='osu').url}" target="_blank" rel="noopener">군집 강도·지역·작물별 권고의 원문 보기 ↗</a></p></section></div></div>`;
   updatePollination();
 }
 function updatePollination() {
   poll=pollination(result,farm); $('#bloom-label').textContent=`${date(farm.bloomStart-1)}부터 ${farm.bloomDays}일 · ${number(farm.area)} m²`;
-  $('#hive-result').innerHTML=Number.isFinite(poll.hives)?`${number(poll.hives)}<small>벌통</small>`:'<span style="font-size:24px;letter-spacing:-1px">충족 불가</span>';
-  $('#farm-art').innerHTML=farmArt(poll.hives);
-  $('#poll-metrics').innerHTML=`<div><span>개화기 누적 수요</span><b>${number(poll.demand/1e6,2)}백만 회</b></div><div><span>한 벌통의 누적 유효 공급</span><b>${number(poll.capacity/1e6,2)}백만 회</b></div><div><span>일별 부족을 무시한 누적량 하한</span><b>${number(poll.totalLowerBound)} 벌통</b></div><div><span>가장 부족한 날</span><b>${poll.hives===0?'추가 벌통 불필요':date((poll.limitingDay||farm.bloomStart)-1)}</b></div>`;
-  $('#poll-warning').textContent=poll.feasible?'가정 기반 산정입니다. 벌통을 늘려도 한 벌통당 공급이 동일하다고 가정하며, 밀도 증가에 따른 경쟁·방문 불균등은 제외합니다. 수분 성공과 수확량을 직접 보장하지 않습니다.':'수요가 있지만 활동 가능한 채집벌 또는 유효 방문 공급이 0인 날이 있습니다. 벌통 수만 늘려 해결할 수 없으므로 개화일·활동 조건을 확인하세요.';
+  const c=poll.coverage, pct=v=>`${number(v*100,1)}%`;
+  $('#hive-result').innerHTML=c.feasible?`${number(c.hives)}<small>벌통</small>`:'<span style="font-size:24px;letter-spacing:-1px">충족 불가</span>';
+  $('#farm-art').innerHTML=farmArt(c.hives);
+  $('#poll-metrics').innerHTML=`<div><span>꽃의 ${pct(c.target)}가 하루 ${c.minimumVisits}회 이상 (무작위 방문)</span><b>${c.feasible?number(c.hives)+' 벌통':'충족 불가'}</b></div><div><span>평균 방문 기준 (꽃마다 정확히 나눈다고 가정)</span><b>${poll.feasible?number(poll.hives)+' 벌통':'충족 불가'}</b></div><div><span>평균 기준일 때 가장 부족한 날 충족 꽃</span><b>${c.atDeterministic?pct(c.atDeterministic.worst):'—'}</b></div><div><span>일별 부족을 무시한 누적량 하한</span><b>${number(poll.totalLowerBound)} 벌통</b></div><div><span>개화기 누적 수요 · 평균 기준</span><b>${number(poll.demand/1e6,2)}백만 회</b></div><div><span>가장 부족한 날</span><b>${c.hives===0?'추가 벌통 불필요':date((c.limitingDay||farm.bloomStart)-1)}</b></div>`;
+  $('#poll-warning').textContent=poll.feasible?`가정 기반 산정입니다. 꽃 한 송이에 필요한 방문 수 k는 정수로 반올림합니다(현재 ${c.minimumVisits}). 벌통을 늘려도 한 벌통당 공급이 같다고 보며 벌통 간 경쟁은 제외합니다. 수분 성공과 수확량을 직접 보장하지 않습니다.`:'수요가 있지만 활동 가능한 채집벌 또는 유효 방문 공급이 0인 날이 있습니다. 벌통 수만 늘려 해결할 수 없으므로 개화일·활동 조건을 확인하세요.';
+  $('#coverage-chart').innerHTML=coverageSVG(poll);
   $('#poll-chart').innerHTML=pollinationSVG(poll);
 }
 
+function patternValue(c) {
+  if(c.observed===null||c.observed===undefined) return '—';
+  if(c.id==='range') return `${number(c.observed)}마리`;
+  if(c.id==='springLow') return date(c.observed-1);
+  if(c.id==='winterMajority'||c.id==='autumnDecline') return `${number(c.observed*100,1)}%`;
+  return `${number(c.observed)}일`;
+}
 function renderMethod() {
   const diag=result.diagnostics;
-  $('#method-view').innerHTML=`<div class="analysis-header"><div><h2>문헌에 기반하고, 가정은 드러냅니다.</h2><p>정교한 그래프가 검증된 예측을 의미하지는 않습니다. 계산 구조의 검증과 관측 자료에 대한 검증을 구분합니다.</p></div><a href="./METHODOLOGY.md" target="_blank" class="button quiet">전체 방법론 ↗</a></div><div class="method-layout"><section class="card method-card"><div class="section-kicker">A DAILY, AGE-STRUCTURED MODEL</div><h2>한 벌통의 연결 구조</h2><div class="model-flow"><span><strong>E</strong>알<small>3일</small></span>→<span><strong>L</strong>유충·번데기<small>18일</small></span>→<span><strong>H</strong>내근벌<small>나이 + 군집 필요</small></span>→<span><strong>F</strong>채집벌<small>계절별 사망</small></span></div><div class="formula">I(t+1) = Q(t+1) · H(t) / [H(t) + K]<br>N<sub>성충</sub>(t) = H(t) + F(t) + D(t)</div>${MODEL_NOTES.map(n=>`<div class="method-note"><h3>${n.title}</h3><p>${n.text}</p></div>`).join('')}</section><div><section class="card method-card"><div class="section-kicker">NUMERICAL CHECKS</div><h2>현재 실험의 계산 점검</h2><div class="metric-list"><div><span>최대 개체수 보존 오차</span><b>${diag.maxMassBalanceError.toExponential(2)}</b></div><div><span>예열 기간</span><b>${diag.warmupDays}일</b></div><div><span>이전 해 대비 일별 최대 차이</span><b>${diag.cycleDifference===null?'평가하지 않음':number(diag.cycleDifference*100,3)+'%'}</b></div><div><span>주기 수렴 점검</span><b>${diag.converged===null?'평가하지 않음':diag.converged?'기준 충족':'미충족 · 예열 조정 권장'}</b></div></div><p class="note-box">개체수는 하루 시작 시점입니다. CSV의 사망·우화·전환은 직전 하루의 흐름입니다. 성충 여왕 1마리와 여왕 교체·분봉·먹이 저장량·진드기 질병은 제외합니다.</p></section><section class="card method-card" style="margin-top:22px"><div class="section-kicker">COMPETITION CHECKLIST</div><h2>대회 요구사항에 연결하기</h2>${REPORT_CHECKLIST.map(n=>`<div class="method-note"><h3>${n.title}</h3><p>${n.text}</p></div>`).join('')}<div class="note-box">이 사이트는 연구 도구입니다. <b>최종 제출물은 25페이지 이내 PDF</b>이며, 요약·목차·참고문헌·부록을 포함합니다.</div></section></div></div><section class="card source-card" style="margin-top:22px"><div class="section-kicker">PARAMETER PROVENANCE</div><h2>현재 값과 그 근거</h2><div class="table-wrap"><table class="parameter-table"><thead><tr><th>파라미터</th><th>현재 값</th><th>문헌 / 가정</th></tr></thead><tbody>${PARAM_META.map(p=>`<tr><td>${p.label}</td><td>${formattedParam(p.key,params[p.key])} ${p.unit}</td><td>${p.status}${p.source?` <a href="${p.source}" target="_blank" rel="noopener">↗</a>`:''}</td></tr>`).join('')}</tbody></table></div></section><section class="card source-card" style="margin-top:22px"><div class="section-kicker">FURTHER READING</div><h2>참고문헌</h2>${SOURCES.map((s,i)=>`<article class="source-item"><span class="source-number">${String(i+1).padStart(2,'0')}</span><div><a href="${s.url}" target="_blank" rel="noopener">${s.title} ↗</a><small>${s.authors} · ${s.year}</small><p>${s.note}</p></div></article>`).join('')}</section>`;
+  $('#method-view').innerHTML=`<div class="analysis-header"><div><h2>문헌에 기반하고, 가정은 드러냅니다.</h2><p>정교한 그래프가 검증된 예측을 의미하지는 않습니다. 계산 구조의 검증과 관측 자료에 대한 검증을 구분합니다.</p></div><a href="./METHODOLOGY.md" target="_blank" class="button quiet">전체 방법론 ↗</a></div><div class="method-layout"><section class="card method-card"><div class="section-kicker">A DAILY, AGE-STRUCTURED MODEL</div><h2>한 벌통의 연결 구조</h2><div class="model-flow"><span><strong>E</strong>알<small>3일</small></span>→<span><strong>L</strong>유충·번데기<small>18일</small></span>→<span><strong>H</strong>여름형 내근벌<small>나이에 따라 전환</small></span>→<span><strong>F</strong>채집벌<small>비행 마모</small></span></div><div class="model-flow"><span><strong>L</strong>우화 시 육아부담 낮음</span>→<span><strong>W</strong>겨울벌<small>비행철까지 전환 보류</small></span>→<span><strong>F</strong>채집벌<small>봄에 합류</small></span></div><div class="formula">I(t+1) = Q(t+1) · (H+W)(t) / [(H+W)(t) + K]<br>φ(t) = 1 / [1 + (ℓ(t)/ℓ<sub>50</sub>)<sup>4</sup>], ℓ = 열린 유충 ÷ 내근벌<br>N<sub>성충</sub>(t) = H(t) + W(t) + F(t) + D(t)</div>${MODEL_NOTES.map(n=>`<div class="method-note"><h3>${n.title}</h3><p>${n.text}</p></div>`).join('')}</section><div><section class="card method-card"><div class="section-kicker">NUMERICAL CHECKS</div><h2>현재 실험의 계산 점검</h2><div class="metric-list"><div><span>최대 개체수 보존 오차</span><b>${diag.maxMassBalanceError.toExponential(2)}</b></div><div><span>예열 기간</span><b>${diag.warmupDays}일</b></div><div><span>이전 해 대비 일별 최대 차이</span><b>${diag.cycleDifference===null?'평가하지 않음':number(diag.cycleDifference*100,3)+'%'}</b></div><div><span>주기 수렴 점검</span><b>${diag.converged===null?'평가하지 않음':diag.converged?'기준 충족':'미충족 · 예열 조정 권장'}</b></div></div><p class="note-box">개체수는 하루 시작 시점입니다. CSV의 사망·우화·전환은 직전 하루의 흐름입니다. 성충 여왕 1마리와 여왕 교체·분봉·먹이 저장량·진드기 질병은 제외합니다.</p></section><section class="card method-card" style="margin-top:22px"><div class="section-kicker">PATTERN CHECKS</div><h2>알려진 계절 패턴을 재현하나요?</h2><p class="analysis-label">관측 자료 적합이 아니라 문헌·문제에 제시된 정성 패턴과의 비교입니다. 통과는 필요조건일 뿐 충분조건이 아닙니다.</p><div class="pattern-list">${diag.patterns.map(c=>`<div class="pattern-item ${c.pass?'pass':'fail'}"><b>${c.pass?'통과':'미충족'}</b><span>${c.label}${c.source?` <a href="${c.source}" target="_blank" rel="noopener">↗</a>`:''}</span><small>${patternValue(c)}</small></div>`).join('')}</div></section><section class="card method-card" style="margin-top:22px"><div class="section-kicker">COMPETITION CHECKLIST</div><h2>대회 요구사항에 연결하기</h2>${REPORT_CHECKLIST.map(n=>`<div class="method-note"><h3>${n.title}</h3><p>${n.text}</p></div>`).join('')}<div class="note-box">이 사이트는 연구 도구입니다. <b>최종 제출물은 25페이지 이내 PDF</b>이며, 요약·목차·참고문헌·부록을 포함합니다.</div></section></div></div><section class="card source-card" style="margin-top:22px"><div class="section-kicker">PARAMETER PROVENANCE</div><h2>현재 값과 그 근거</h2><div class="table-wrap"><table class="parameter-table"><thead><tr><th>파라미터</th><th>현재 값</th><th>문헌 / 가정</th></tr></thead><tbody>${PARAM_META.map(p=>`<tr><td>${p.label}</td><td>${formattedParam(p.key,params[p.key])} ${p.unit}</td><td>${p.status}${p.source?` <a href="${p.source}" target="_blank" rel="noopener">↗</a>`:''}</td></tr>`).join('')}</tbody></table></div></section><section class="card source-card" style="margin-top:22px"><div class="section-kicker">FURTHER READING</div><h2>참고문헌</h2>${SOURCES.map((s,i)=>`<article class="source-item"><span class="source-number">${String(i+1).padStart(2,'0')}</span><div><a href="${s.url}" target="_blank" rel="noopener">${s.title} ↗</a><small>${s.authors} · ${s.year}</small><p>${s.note}</p></div></article>`).join('')}</section>`;
 }
 function renderBlog() {
-  $('#blog-view').innerHTML=`<div class="blog-toolbar"><span>현재 실험의 수치를 반영합니다. 인쇄 시 브라우저 머리글·바닥글을 끄세요.</span><button id="print-blog" class="button primary">한 페이지 인쇄 / PDF ↗</button></div><article class="blog-sheet"><div class="eyebrow">${BLOG.eyebrow}</div><h2>${BLOG.title}</h2><p class="blog-subtitle">${BLOG.subtitle}</p><p class="blog-intro">${BLOG.intro}</p><div class="blog-flow"><span>알</span>→<span>어린 벌</span>→<span>돌보는 벌</span>→<span>꽃을 찾는 벌</span>→<span>열매 맺는 농장</span></div><div class="blog-sections">${BLOG.sections.map(s=>`<section class="blog-section"><span class="section-number">${s.number}</span><h3>${s.title}</h3><p>${s.text}</p></section>`).join('')}</div><div class="blog-live"><div><div class="stat-value">${number(result.summary.peakAdults)}</div><p>현재 설정의 최대 성충 / 마리</p></div><div><div class="stat-value">${number(poll.hives)}</div><p>필요 벌통 / ${number(farm.area)} m²</p></div><div><div class="stat-value">${farm.bloomDays}<small>days</small></div><p>${date(farm.bloomStart-1)} 시작 개화기</p></div></div><p class="blog-takeaway">${BLOG.takeaway}</p><p class="blog-footnote">${BLOG.footnote} 농장 조건: 꽃 ${farm.flowerDensity}송이/m²/일, 꽃당 ${farm.visitsPerFlower}회/일, 날씨 ${farm.weather}, 작물 방문 ${farm.cropShare}, 유효 비율 ${farm.efficiency}. 월동 ${params.winterLife}일, 성수기 채집 ${params.summerForagerLife}일.</p><div class="blog-source-links">참고: ${BLOG.sources.map(id=>{const s=SOURCES.find(s=>s.id===id);return `<a href="${s.url}" target="_blank" rel="noopener">${s.authors} (${s.year})</a>`;}).join(' · ')}</div></article>`;
+  $('#blog-view').innerHTML=`<div class="blog-toolbar"><span>현재 실험의 수치를 반영합니다. 인쇄 시 브라우저 머리글·바닥글을 끄세요.</span><button id="print-blog" class="button primary">한 페이지 인쇄 / PDF ↗</button></div><article class="blog-sheet"><div class="eyebrow">${BLOG.eyebrow}</div><h2>${BLOG.title}</h2><p class="blog-subtitle">${BLOG.subtitle}</p><p class="blog-intro">${BLOG.intro}</p><div class="blog-flow"><span>알</span>→<span>어린 벌</span>→<span>돌보는 벌</span>→<span>꽃을 찾는 벌</span>→<span>열매 맺는 농장</span></div><div class="blog-sections">${BLOG.sections.map(s=>`<section class="blog-section"><span class="section-number">${s.number}</span><h3>${s.title}</h3><p>${s.text}</p></section>`).join('')}</div><div class="blog-live"><div><div class="stat-value">${number(result.summary.peakAdults)}</div><p>현재 설정의 최대 성충 / 마리</p></div><div><div class="stat-value">${number(poll.coverage.hives)}</div><p>필요 벌통 / ${number(farm.area)} m² · 꽃 ${number(poll.coverage.target*100)}%</p></div><div><div class="stat-value">${farm.bloomDays}<small>days</small></div><p>${date(farm.bloomStart-1)} 시작 개화기</p></div></div><p class="blog-takeaway">${BLOG.takeaway}</p><p class="blog-footnote">${BLOG.footnote} 농장 조건: 꽃 ${farm.flowerDensity}송이/m²/일, 꽃당 ${farm.visitsPerFlower}회/일, 날씨 ${farm.weather}, 작물 방문 ${farm.cropShare}, 유효 비율 ${farm.efficiency}. 겨울벌 ${params.winterLife}일, 성수기 채집 ${params.summerForagerLife}일. 벌통 수는 방문이 무작위로 흩어진다고 본 값이며, 평균 방문 기준으로는 ${number(poll.hives)}개입니다.</p><div class="blog-source-links">참고: ${BLOG.sources.map(id=>{const s=SOURCES.find(s=>s.id===id);return `<a href="${s.url}" target="_blank" rel="noopener">${s.authors} (${s.year})</a>`;}).join(' · ')}</div></article>`;
 }
 
-function experiment() { return {version:'1.0.0',model:'BeeLab daily age-structured colony',params:{...params},farm:{...farm},analysis:{metric,delta},note:'Uncalibrated exploratory scenario; see METHODOLOGY.md'}; }
+function experiment() { return {version:'1.1.0',model:'BeeLab daily age-structured colony',params:{...params},farm:{...farm},analysis:{metric,delta},note:'Uncalibrated exploratory scenario; see METHODOLOGY.md'}; }
 function applyExperiment(data) {
-  if(!data || data.version!=='1.0.0' || !data.params || !data.farm) throw new Error('BeeLab v1.0.0 실험 설정 파일이 아닙니다.');
+  if(!data || !['1.0.0','1.1.0'].includes(data.version) || !data.params || !data.farm) throw new Error('BeeLab 실험 설정 파일(v1.0.0/1.1.0)이 아닙니다.');
   for(const [k,v] of Object.entries(data.params)) { if(!(k in DEFAULTS) || typeof v!=='number' || !Number.isFinite(v)) throw new Error('모델 설정에 잘못된 값이 있습니다.'); }
   for(const [k,v] of Object.entries(data.farm)) { const m=FARM_META.find(p=>p.key===k); if(!m || typeof v!=='number' || !Number.isFinite(v) || v<m.min || v>m.max) throw new Error('농장 설정이 허용 범위를 벗어났습니다.'); }
   params=normalizeParams({...DEFAULTS,...data.params,years:1}); farm={...POLLINATION_DEFAULTS,...data.farm};
@@ -182,8 +205,9 @@ function download(name,content,type='text/plain;charset=utf-8') {
 }
 function csv(rows) { return '\uFEFF'+rows.map(row=>row.map(v=>`"${String(v??'').replaceAll('"','""')}"`).join(',')).join('\r\n'); }
 function downloadCSV() {
-  const keys=['day','doy','eggs','brood','hiveBees','foragers','drones','adults','workerAdults','total','activity','activeForagers','laying','viableLaying','deaths','emerged','droneEmerged','recruits','massBalanceError'];
-  download('beelab-daily.csv',csv([keys.map(k=>['deaths','emerged','droneEmerged','recruits'].includes(k)?k+'_previous_interval':k),...result.days.map(r=>keys.map(k=>r[k]))]),'text/csv;charset=utf-8');
+  const keys=['day','doy','eggs','brood','hiveBees','winterBees','foragers','drones','adults','workerAdults','longLivedShare','total','activity','activeForagers','laying','viableLaying','deaths','emerged','droneEmerged','recruits','winterRecruits','nurseLoad','winterShare','massBalanceError'];
+  const flowKeys=['deaths','emerged','droneEmerged','recruits','winterRecruits','nurseLoad','winterShare'];
+  download('beelab-daily.csv',csv([keys.map(k=>flowKeys.includes(k)?k+'_previous_interval':k),...result.days.map(r=>keys.map(k=>r[k]))]),'text/csv;charset=utf-8');
 }
 function downloadFigure(){download('beelab-population.svg',populationSVG(result,chartOptions()),'image/svg+xml;charset=utf-8');}
 function stopPlaying(){clearInterval(playTimer);playTimer=null;$('#play-btn').innerHTML=icon('play');$('#play-btn').setAttribute('aria-label','날짜 애니메이션 재생');}
@@ -193,7 +217,7 @@ document.addEventListener('click', async event => {
   if(event.target.closest('.brand')) { event.preventDefault(); navigate('overview'); return; }
   if(!button) return;
   if(button.dataset.view || button.dataset.go) {navigate(button.dataset.view||button.dataset.go);return;}
-  if(button.dataset.mode){mode=button.dataset.mode;visible=mode==='all'?['adults','eggs','brood','hiveBees','foragers','drones']:['adults','hiveBees','foragers','drones'];$$('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));renderLegend();renderChart();return;}
+  if(button.dataset.mode){mode=button.dataset.mode;visible=mode==='all'?[...ALL_SERIES]:[...ADULT_SERIES];$$('[data-mode]').forEach(b=>b.classList.toggle('selected',b.dataset.mode===mode));renderLegend();renderChart();return;}
   if(button.dataset.series){const k=button.dataset.series;if(visible.includes(k)){if(visible.length===1)return;visible=visible.filter(v=>v!==k);}else visible.push(k);renderLegend();renderChart();return;}
   switch(button.id){
     case 'how-btn':navigate('method');break;
@@ -203,10 +227,11 @@ document.addEventListener('click', async event => {
     case 'export-btn':clearTimeout(timer);run();$('#export-dialog').showModal();break;
     case 'close-export':$('#export-dialog').close();break;
     case 'download-csv':downloadCSV();break;
-    case 'download-pollination':{const keys=['day','doy','demand','supply','ratio','hives','foragers','activeForagers'];download('beelab-pollination.csv',csv([keys,...poll.daily.map(r=>keys.map(k=>Number.isFinite(r[k])?r[k]:'not_feasible'))]),'text/csv;charset=utf-8');break;}
+    case 'download-pollination':{const keys=['day','doy','demand','supply','ratio','hives','coverageNeed','coverageRatio','coverageHives','foragers','activeForagers'];download('beelab-pollination.csv',csv([keys,...poll.daily.map(r=>keys.map(k=>Number.isFinite(r[k])?r[k]:'not_feasible'))]),'text/csv;charset=utf-8');break;}
     case 'download-json':download('beelab-experiment.json',JSON.stringify(experiment(),null,2),'application/json');break;
     case 'download-figure':case 'svg-export':downloadFigure();break;
     case 'download-sensitivity':{button.disabled=true;const stamp=JSON.stringify([generation,metric,delta]);try{const rows=await getSensitivity();if(stamp!==JSON.stringify([generation,metric,delta]))throw new Error('설정이 변경되었습니다. 다시 내보내기를 눌러 주세요.');const keys=['key','label','metric','baseline','lowValue','highValue','actualLowPercent','actualHighPercent','low','high','lowChange','highChange','elasticity','bounded'];download('beelab-sensitivity.csv',csv([keys,...rows.map(r=>keys.map(k=>r[k]))]),'text/csv;charset=utf-8');}catch(e){toast(e.message);}finally{button.disabled=false;}break;}
+    case 'morris-btn':{button.disabled=true;const stamp=generation,requested=metric;$('#morris-output').className='uncertainty-placeholder';$('#morris-output').innerHTML=`<span class="loader"></span>${10*(SENSITIVITY_KEYS.length+1)+1}개 시나리오로 Morris 선별 중`;try{const m=await analyze('morris',{metric:requested,trajectories:10,spread:.2,seed:2022});if(stamp===generation&&requested===metric&&$('#morris-output')){morrisResult=m;$('#morris-output').className='';$('#morris-output').innerHTML=morrisHTML(m);button.textContent='다시 계산';}}catch(e){toast(e.message);}finally{button.disabled=false;}break;}
     case 'uncertainty-btn':{button.disabled=true;const stamp=generation;$('#uncertainty-output').innerHTML='<span class="loader"></span>64개 시나리오 계산 중';try{const a=await analyze('uncertainty',{runs:64,seed:2022,spread:.1});if(stamp===generation){$('#uncertainty-output').className='chart-container';$('#uncertainty-output').innerHTML=uncertaintySVG(a);button.textContent='다시 계산';}}catch(e){toast(e.message);}finally{button.disabled=false;}break;}
     case 'print-blog':window.print();break;
     case 'share-btn':{const url=new URL(location.href);url.hash='experiment='+encodeURIComponent(JSON.stringify(experiment()));history.replaceState(null,'',url);try{await navigator.clipboard.writeText(url.href);toast('설정이 포함된 실험 주소를 복사했습니다.');}catch{toast('주소창에 실험 설정을 담았습니다. 주소를 복사해 공유하세요.');}break;}

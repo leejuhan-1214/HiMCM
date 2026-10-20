@@ -1,11 +1,11 @@
 /** Standalone, dependency-free, exportable SVG charts. No external font/CSS/IDs. */
 export const SERIES_COLORS = Object.freeze({
-  hiveBees: '#477452', foragers: '#d6a83d', drones: '#78949f',
+  hiveBees: '#477452', winterBees: '#6b5b95', foragers: '#d6a83d', drones: '#78949f',
   eggs: '#92afb9', brood: '#d59877', adults: '#263c2e', total: '#263c2e',
 });
 
 export const SERIES_LABELS = Object.freeze({
-  hiveBees: '내근벌', foragers: '채집벌', drones: '수벌',
+  hiveBees: '내근벌', winterBees: '그중 겨울벌', foragers: '채집벌', drones: '수벌',
   eggs: '알', brood: '유충·번데기', adults: '전체 성충', total: '모든 발달 단계',
 });
 
@@ -180,4 +180,37 @@ export function pollinationSVG(poll) {
   if (showFleet) body += `<line x1="656" y1="13" x2="674" y2="13" stroke="#8ca583" stroke-width="2" stroke-dasharray="5 3"/><text x="681" y="17" font-size="10" fill="#778074">${escape(hives)}개 벌통 공급</text>`;
   if (hives === null) body += `<text x="${f(scale.left + scale.width / 2)}" y="${scale.top + 18}" text-anchor="middle" font-size="12" fill="#b27354">활동 불가능한 날은 벌통을 늘려도 수요를 충족할 수 없습니다</text>`;
   return svgFrame('개화기의 일별 수분 수요와 공급', `세로축 하루당 백만 유효 방문. 갈색은 작물 수요, 초록 실선은 한 벌통의 공급${showFleet ? `, 초록 점선은 ${hives}개 벌통의 공급` : ''}. ${hives === null ? '수요를 충족하지 못하는 활동 불가능 날짜가 있습니다.' : ''}`, body);
+}
+
+/** Share of open flowers that reach the required visits, as a function of hive count. */
+export function coverageSVG(poll) {
+  const c = poll?.coverage;
+  const points = (c?.curve ?? []).filter(point => Number.isFinite(point.hives));
+  if (points.length < 2) return emptyChart('벌통 수에 따른 충분히 방문받은 꽃의 비율');
+  const box = plotBox();
+  const top = points.at(-1).hives;
+  const x = hives => box.left + hives / Math.max(1, top) * box.width;
+  const y = share => box.top + box.height * (1 - clamp(finite(share), 0, 1));
+  let body = `<text x="${box.left}" y="15" font-size="11" fill="#778074">충분히 방문받은 꽃 (%)</text>`;
+  for (const share of [0, 0.25, 0.5, 0.75, 1]) {
+    body += `<line x1="${box.left}" y1="${f(y(share))}" x2="${f(box.left + box.width)}" y2="${f(y(share))}" stroke="#e8ece5" ${share > 0 ? 'stroke-dasharray="3 5"' : ''}/><text x="${box.left - 13}" y="${f(y(share) + 4)}" text-anchor="end" font-size="11" fill="#8a9087">${share * 100}</text>`;
+  }
+  const step = Math.max(1, Math.ceil(top / 10));
+  for (let hives = 0; hives <= top; hives += step) {
+    body += `<text x="${f(x(hives))}" y="${f(box.top + box.height + 24)}" text-anchor="middle" font-size="11" fill="#8a9087">${hives}</text>`;
+  }
+  body += `<text x="${f(box.left + box.width)}" y="${BOX.height - 7}" text-anchor="end" font-size="10" fill="#9a9f97">벌통 수</text>`;
+  body += `<line x1="${box.left}" y1="${f(y(c.target))}" x2="${f(box.left + box.width)}" y2="${f(y(c.target))}" stroke="#bd885d" stroke-width="1.4" stroke-dasharray="6 4"><title>목표 ${formatChartNumber(c.target * 100, 0)}%</title></line>`;
+  const path = key => points.map((point, i) => `${i ? 'L' : 'M'}${f(x(point.hives))},${f(y(point[key]))}`).join(' ');
+  body += `<path d="${path('mean')}" fill="none" stroke="#8ca583" stroke-width="2" stroke-dasharray="6 4" stroke-linejoin="round"><title>개화기 평균</title></path>`;
+  body += `<path d="${path('worst')}" fill="none" stroke="#477452" stroke-width="2.6" stroke-linejoin="round"><title>가장 부족한 날</title></path>`;
+  const marker = (hives, color, label) => {
+    const point = points.find(p => p.hives === hives);
+    if (!point) return '';
+    return `<circle cx="${f(x(hives))}" cy="${f(y(point.worst))}" r="5" fill="${color}" stroke="#fff" stroke-width="2"><title>${escape(label)}</title></circle><text x="${f(x(hives) + 8)}" y="${f(y(point.worst) + 15)}" font-size="10" fill="${color}">${escape(label)}</text>`;
+  };
+  if (Number.isFinite(poll.hives) && poll.hives !== c.hives) body += marker(poll.hives, '#b27354', `평균 방문 기준 ${poll.hives}개`);
+  if (Number.isFinite(c.hives)) body += marker(c.hives, '#263c2e', `무작위 방문 기준 ${c.hives}개`);
+  body += '<line x1="560" y1="13" x2="578" y2="13" stroke="#477452" stroke-width="2.4"/><text x="585" y="17" font-size="10" fill="#778074">가장 부족한 날</text><line x1="680" y1="13" x2="698" y2="13" stroke="#8ca583" stroke-width="2" stroke-dasharray="5 3"/><text x="705" y="17" font-size="10" fill="#778074">개화기 평균</text><line x1="780" y1="13" x2="798" y2="13" stroke="#bd885d" stroke-width="1.4" stroke-dasharray="5 3"/><text x="805" y="17" font-size="10" fill="#778074">목표</text>';
+  return svgFrame('벌통 수에 따른 충분히 방문받은 꽃의 비율', `방문이 꽃 사이에 무작위(포아송)로 흩어진다고 볼 때, 하루 ${c.minimumVisits}회 이상 유효 방문을 받은 꽃의 비율. 실선은 개화기 중 가장 부족한 날, 점선은 개화기 평균, 갈색 점선은 목표 ${formatChartNumber(c.target * 100, 0)}%.`, body);
 }

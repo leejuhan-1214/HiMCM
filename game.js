@@ -1,5 +1,5 @@
-import { DEFAULTS, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate } from './model.js?v=2.4.0';
-import { createTimeline, deriveWorldState } from './world-state.js?v=2.4.0';
+import { DEFAULTS, PRESETS, POLLINATION_DEFAULTS, normalizeParams, simulate } from './model.js?v=2.5.0';
+import { createTimeline, deriveWorldState } from './world-state.js?v=2.5.0';
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -228,7 +228,7 @@ async function start(){
   }catch{toast('공유 설정을 읽지 못해 기준 군집을 사용합니다.');}
   makeSparkline();updateBloomUI();refreshFrame();updateUI();
   try{
-    const {createWorld}=await import('./world.js?v=2.4.0');world=createWorld($('#world'),{onSelect:selectObject});
+    const {createWorld}=await import('./world.js?v=2.5.0');world=createWorld($('#world'),{onSelect:selectObject});
     if(innerWidth<600){world.setQuality('low');$('#world-quality').value='low';}
     world.update(frame,0);$('#world-loading').classList.add('done');setTimeout(()=>$('#world-loading').hidden=true,600);rafId=requestAnimationFrame(animate);
   }catch(error){
