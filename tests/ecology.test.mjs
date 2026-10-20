@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { simulate } from '../src/model.js';
+import { simulate, landscape } from '../src/model.js';
 import { createTimeline, deriveWorldState } from '../src/world-state.js';
 
 test('ecological food stores and demographic feedback are finite and repeatable', () => {
@@ -36,4 +36,33 @@ test('crop bloom timing changes resource forcing and a visual frame exposes ecol
   assert.ok(frame.nectarStore > 0);
   assert.ok(frame.wildflowerCoverage > 0);
   assert.equal(frame.weatherExplanation.includes('되먹임'), false);
+});
+
+test('seasonal landscape patches and distance accounting are finite and distinct', () => {
+  const spring = landscape(130, { bloomStart: 120, bloomDays: 21 });
+  const summer = landscape(230, { bloomStart: 120, bloomDays: 21 });
+  assert.ok(spring.zoneResources.orchard > summer.zoneResources.orchard);
+  assert.ok(summer.zoneResources.meadow > spring.zoneResources.meadow);
+  assert.ok(spring.zoneResources.crop > 0);
+  assert.equal(summer.zoneResources.crop, 0);
+  assert.ok(spring.forageDistanceKm > 0 && spring.forageDistanceKm < 3.1);
+  assert.ok(spring.landscapeAccess > 0 && spring.landscapeAccess <= 1);
+});
+
+test('water, fragmentation and pesticide pressure propagate to resources, stores or adults', () => {
+  const normal = simulate({}, { ecology: { structure: 'mixed' } });
+  const fragmented = simulate({}, { ecology: { structure: 'fragmented' } });
+  const exposed = simulate({}, { ecology: { pesticidePressure: 1 } });
+  const dry = landscape(190, { weatherRegime: 'drought', waterAccess: 0 });
+  const watered = landscape(190, { weatherRegime: 'drought', waterAccess: 1 });
+  assert.ok(fragmented.days[130].flowerResource < normal.days[130].flowerResource);
+  assert.ok(fragmented.days[130].nectarStore < normal.days[130].nectarStore);
+  assert.ok(exposed.summary.meanAdults < normal.summary.meanAdults);
+  assert.ok(exposed.days[130].exposureIndex > 0);
+  assert.ok(watered.flowerResource > dry.flowerResource);
+  assert.ok(watered.nectarFactor > dry.nectarFactor);
+  const frame = deriveWorldState(exposed, {}, createTimeline({ day: 130, playing: false }));
+  assert.ok(frame.zoneResources.orchard >= 0);
+  assert.ok(frame.exposureIndex > 0);
+  assert.equal(frame.waterAccess, 0.7);
 });
