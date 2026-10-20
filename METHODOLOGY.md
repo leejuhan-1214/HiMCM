@@ -180,13 +180,23 @@ C_t = F_t × A(t) × weather × cropShare × visitsPerBee × efficiency
 
 20에이커를 정사각형으로 가정하면 한 변이 약 285m이고 중심에서 모서리까지 약 201m이다. 이는 모양을 정사각형으로 가정한 기하학적 예시일 뿐이다. 면적만으로 부지의 최대 거리를 알 수는 없다. 기본 수분 모델은 벌통 배치, 주변 꽃과의 경쟁, 벌통 간 자원 경쟁을 공간적으로 계산하지 않는다.
 
-## 8. 현재 한계와 우선 확장
+## 8. 3D 광역 경관 시나리오
 
-먹이 저장량과 꽃가루의 단백질 성분, 기생충·질병의 상태, 농약 노출, 여왕 교체, 분봉을 명시적으로 추적하지 않는다. H에서 F로의 모집과 수벌 생존에는 가정한 함수가 포함된다. 같은 날짜의 모든 벌에 계절 사망확률을 적용하므로 개체의 생리적 월동 상태를 완전히 표현하지 못한다. 모든 벌통의 공급을 같은 배수로 늘리는 수분 계산은 많은 벌통을 놓았을 때의 자원 경쟁을 생략한다.
+3D 화면은 벌통 주변의 초지·꽃길, 과수원, 숲 가장자리, 경작지, 마을 정원 및 물길을 표시한다. 중심 관찰 구역(약 34×26 시각화 단위)보다 전체 주요 경관(약 140×120 시각화 단위)이 10배 이상 넓지만 **이 단위는 m가 아니다**. 20에이커를 실측·재구성한 지도가 아니고, 화면상 거리를 모델의 km로 환산하지 않는다. 단일 군집 가정도 그대로 유지한다.
+
+경관 계산은 `src/model.js`의 `landscape(day, options)`에 정의된 결정론적 가상 시나리오이다. 초지, 과수원, 숲, 마을의 자원은 각각 다른 계절 개화 곡선과 가중치를 가지며, 작물은 사용자가 정하는 짧은 개화창을 따른다. 각 구역의 자원 기여는 `개화지수 × 자원가중치 × 서식지 조건 × 물·경관 보정 × exp(−거리계수×가상 km)` 형태다. 꽃 자원은 구역의 합(작물 포함)이고, 평균 채집 거리는 자원이 있는 구역의 거리 가중평균이다. 이 거리는 실제 벌 이동거리의 추정치가 아니라 경관 분산이 야기하는 비행 비용의 대리변수다. 꽃 자원과 계절·경관에 따라 채집거리가 변한다는 관찰이 구조 선택의 동기다. [Couvillon et al. 2014](https://pmc.ncbi.nlm.nih.gov/articles/PMC3973573/), [Steffan-Dewenter & Kuhn 2003](https://pmc.ncbi.nlm.nih.gov/articles/PMC1691282/).
+
+구역 합산 자원과 비행 가능 날씨, 거리 접근계수를 함께 채집량에 적용한다. 꿀·꽃가루 수집량에서 성충·육아 소비량을 뺀 뒤 저장량을 다음 날로 넘긴다. 저장 부족은 산란 허용량, 미성숙 단계의 생존 및 성충 사망에 연결한다. 가뭄 시 물 접근성은 꽃·꿀 생산에만 완충효과를 주며, 농약 노출 압력은 개화 중 채집벌 추가 사망위험에만 적용한다. 화면의 야생 수분매개자 지수는 서식지와 노출에 반응하지만 독립적인 개체군 상태가 아니다. 가상 먹이 단위 계수, 거리비용, 노출-사망 기울기는 **현장 관측으로 추정되지 않았다**. 따라서 조절기의 100%는 실제 농약 농도·수분량이 아니며 결과는 예측이나 안전기준이 아니다. 농약 영향의 방향을 탐색하는 동기는 [Rumkee et al. 2015](https://pmc.ncbi.nlm.nih.gov/articles/PMC4633771/)를 참고했지만 이 구현이 BEEHAVE의 독성모형을 재현하지는 않는다.
+
+광역 경관에서 구역을 누르면 해당 날짜의 자원지수가 열린다. 채집 경로는 관계 설명용 곡선이고 화면의 벌은 표본이다. 조절기로 시나리오를 바꾸면 예열 포함 전체 연도를 다시 계산하고, 날짜를 되돌리면 같은 결과를 재현한다. 넓은 경관과 단일 벌통의 연결은 **정량 모델**, 개별 곤충과 공간 배치는 **시각적 해설**로 구별한다. 20에이커 벌통 수 계산은 기존의 독립된 수요·공급 모델이며, 이 가상 경관의 픽셀 면적을 농지 면적으로 사용하지 않는다.
+
+## 9. 현재 한계와 우선 확장
+
+기본 데이터 연구실 모델은 먹이 저장량을 추적하지 않는다. 3D 확장은 상대 먹이 저장과 농약 노출 **대리지수**를 다루지만, 실제 농약 농도·잔류·독성곡선, 꽃가루 단백질 성분, 기생충·질병, 여왕 교체, 분봉은 명시적으로 추적하지 않는다. H에서 F로의 모집과 수벌 생존에는 가정한 함수가 포함된다. 같은 날짜의 모든 벌에 계절 사망확률을 적용하므로 개체의 생리적 월동 상태를 완전히 표현하지 못한다. 모든 벌통의 공급을 같은 배수로 늘리는 수분 계산은 많은 벌통을 놓았을 때의 자원 경쟁을 생략한다.
 
 다음 연구 단계의 우선순위는 (1) 작물·지역별 개화와 꽃 밀도 자료, (2) 군집 관측자료에 대한 보정·검증, (3) 파라미터 상호작용과 불확실성, (4) 먹이·영양과 공간 경쟁 확장이다. 현 버전보다 많은 상태변수를 만드는 것 자체를 성능 개선으로 취급하지 않는다.
 
-## 9. 25페이지 보고서 배분 예시
+## 10. 25페이지 보고서 배분 예시
 
 | 내용 | 페이지 |
 |---|---:|
@@ -214,3 +224,5 @@ C_t = F_t × A(t) × weather × cropShare × visitsPerBee × efficiency
 5. FAO. [Honeybee biology](https://www.fao.org/4/x0083e/X0083E03.htm).
 6. Rumkee, J. C. O., Becher, M. A., Thorbek, P., Kennedy, P. J., & Osborne, J. L. (2015). [Predicting Honeybee Colony Failure: Using the BEEHAVE Model to Simulate Colony Responses to Pesticides](https://pmc.ncbi.nlm.nih.gov/articles/PMC4633771/). Environmental Science & Technology, 49(21), 12879–12887.
 7. Oregon State University Extension Service. [Evaluating honey bee colonies for pollination](https://extension.oregonstate.edu/catalog/pnw-623-evaluating-honey-bee-colonies-pollination). PNW 623.
+8. Couvillon, M. J., et al. (2014). [Waggle Dance Distances as Integrative Indicators of Seasonal Foraging Challenges](https://pmc.ncbi.nlm.nih.gov/articles/PMC3973573/). PLOS ONE, 9(4), e93495.
+9. Steffan-Dewenter, I., & Kuhn, A. (2003). [Honeybee foraging in differentially structured landscapes](https://pmc.ncbi.nlm.nih.gov/articles/PMC1691282/). Proceedings of the Royal Society B, 270(1515), 569–575.

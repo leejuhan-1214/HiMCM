@@ -24,6 +24,10 @@ body{background:#72816f}
 .world-intro p,.world-location{color:#3c5646;text-shadow:0 1px 8px #e4ece5b8}
 .world-observation,.floating-panel,.time-dock,.camera-tools,.season-pill,.lab-link{background:#f4f1e8df;border-color:#edece4d9;box-shadow:0 14px 34px #243b2c24}
 .world-resource{border-top:1px solid #d6ddcf;margin-top:9px;padding-top:8px;color:#607c66!important;font-size:8px!important}
+.world-stressors{margin-top:5px;color:#607c66!important;font-size:8px!important}
+.camera-tools{gap:2px}.camera-tools button{width:45px}
+@media(max-width:780px){.camera-tools button{width:37px}}
+@media(max-width:480px){.camera-tools button{width:32px}.navigation-hint{display:none}.world-observation .pollination-status .world-stressors{display:block;font-size:6.2px!important}}
 .setting-hint{font-size:8px;line-height:1.55;color:#899681;margin-top:5px}
 .hive-processes b{font-size:12px}
 @media(max-width:480px){.world-observation .pollination-status .world-resource{display:block;font-size:6.3px!important}.world-intro h1{color:#263e32}}
