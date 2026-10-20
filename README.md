@@ -58,6 +58,8 @@ npm test
 
 기본 모델은 여왕 1마리와 관리되는 단일 벌통을 가정합니다. 3D 생태 확장에서는 상대적인 먹이 저장량을 추적하지만, 질병, 분봉, 공간 제한, 벌통 간 자원 경쟁은 제외합니다. 예열 후에도 계절 주기가 수렴하지 않을 수 있으며 진단 경고를 함께 읽어야 합니다. 방문량은 실제 수정 성공률이나 수확량과 같지 않습니다.
 
+3D 날씨는 이제 구역별로 이동하는 가상 전선·소나기를 사용합니다. 숲 능선의 상승, 영하의 눈·융설, 토양 수분과 제한된 물 공급을 거쳐 꽃 자원과 군집 상태에 연결합니다. 화면에서 구역을 누르면 그날의 강수 원인과 토양 상태를 볼 수 있습니다. 고정 시드의 재현 가능한 **시나리오**이지 특정 지역의 기상 예보나 관측 기반 디지털 트윈은 아닙니다.
+
 핵심 참고자료는 [Khoury et al. 2011](https://doi.org/10.1371/journal.pone.0018491), [Khoury et al. 2013](https://doi.org/10.1371/journal.pone.0059084), [Fukuda & Sakagami 1968](https://doi.org/10.1007/BF02514731), [FAO 꿀벌 생물학](https://www.fao.org/4/x0083e/X0083E03.htm)입니다. 각 수치의 해석과 추가 출처는 방법론 문서와 사이트의 모델 설명에 정리했습니다.
 
 웹사이트는 대회 보고서를 보완하는 실험 도구입니다. 최종 제출물은 문제에서 요구한 요약·목차·참고문헌 등을 포함하는 25페이지 이내 PDF로 별도 구성해야 합니다.
@@ -78,6 +80,7 @@ world.css                  3D 세계 HUD와 반응형 화면
 src/game.js                3D 화면 제어·카메라·결과 저장 연결
 src/world.js               Three.js 지형·벌통·벌·꽃 렌더링
 src/world-state.js         시간 제어와 수치 모델→3D 상태 변환
+src/weather.js             이동 전선·소나기·구역별 비/눈·토양 수분 시나리오
 vendor/                    Three.js·OrbitControls·라이선스
 lab.html                   기존 데이터 연구실 화면
 styles.css                 연구실 반응형 화면과 인쇄 스타일
@@ -86,6 +89,7 @@ src/content.js             한국어 설명과 출처
 tests/model.test.mjs       수치 모델 검증
 tests/world-state.test.mjs 시간·날씨·보간·개화 구간 검증
 tests/ecology.test.mjs     꽃 자원·먹이 저장·군집 피드백 검증
+tests/weather.test.mjs     공간 강수·눈·물수지·시간창 검증
 server.mjs                 로컬 정적 서버
 METHODOLOGY.md             수식·가정·출처와 보고서 작성 메모
 루트 실행 파일 사본        GitHub Pages / (root) 배포용

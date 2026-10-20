@@ -1,3 +1,5 @@
+import { weatherAt } from './weather.js';
+
 /**
  * HiMCM 2022 A · deterministic, daily, expected-count colony model.
  * This is an exploratory model, not a fitted colony/farm forecast.
@@ -134,34 +136,42 @@ export function landscape(day, options = {}) {
     woodland: { km: 2.2, bloom: 0.42 * spring + 0.24 * summer + 0.35 * autumn, weight: 0.38 },
     village: { km: 3.1, bloom: 0.25 * spring + 0.48 * summer + 0.24 * autumn, weight: 0.20 },
   };
+  const weather = weatherAt(day, { weatherRegime: regime, waterAccess });
   const connectivity = structure === 'fragmented' ? 0.95 : structure === 'flowerStrip' ? 1.12 : 1;
-  const waterMultiplier = regime === 'drought' ? 0.56 + 0.44 * waterAccess : 1;
   const zoneResources = {};
   let resourceSum = 0;
   let distanceSum = 0;
   for (const [name, patch] of Object.entries(patches)) {
     const local = structure === 'flowerStrip' && name === 'meadow' ? 1.38 : 1;
     const access = Math.exp(-patch.km * (structure === 'fragmented' ? 0.22 : 0.15));
-    const resource = patch.bloom * patch.weight * habitat * connectivity * waterMultiplier * local * access;
+    const soilFactor = 0.78 + 0.22 * weather.soil[name];
+    const resource = patch.bloom * patch.weight * habitat * connectivity * soilFactor * local * access;
     zoneResources[name] = resource;
     resourceSum += resource;
     distanceSum += resource * patch.km;
   }
   const wildflower = doy < 60 || doy > 335 ? 0 : clamp(resourceSum, 0, 1);
-  const cropResource = cropBloom * 0.28;
+  const cropResource = cropBloom * 0.28 * (0.78 + 0.22 * weather.soil.crop);
   zoneResources.crop = cropResource;
   const flowerResource = clamp(wildflower + cropResource, 0, 1);
-  const weatherPulse = Math.sin(doy * 0.19 + 1.4) + 0.45 * Math.sin(doy * 0.61);
-  const rainyDay = regime === 'wet' ? weatherPulse > 0.35 : regime === 'drought' ? weatherPulse > 1.05 : weatherPulse > 0.85;
-  const flightWeather = rainyDay ? 0.55 : regime === 'wet' ? 0.93 : regime === 'drought' ? 0.96 : 1;
-  const nectarFactor = regime === 'drought' ? 0.68 + 0.22 * waterAccess : regime === 'wet' ? 0.94 : 1;
-  const pollenFactor = regime === 'drought' ? 0.75 + 0.17 * waterAccess : regime === 'wet' ? 0.95 : 1;
+  const forageRain = Object.entries(zoneResources).reduce((total, [name, value]) => total + value * (weather.rain[name] + weather.snowfall[name]), 0)
+    / Math.max(0.001, resourceSum + cropResource);
+  const hivePrecipitation = weather.rain.hive + weather.snowfall.hive;
+  const rainyDay = hivePrecipitation > 0.10;
+  const flightWeather = clamp(1 - 0.48 * hivePrecipitation - 0.20 * forageRain, 0.35, 1);
+  const weightedSoil = Object.entries(zoneResources).reduce((total, [name, value]) => total + value * weather.soil[name], 0)
+    / Math.max(0.001, resourceSum + cropResource);
+  const nectarFactor = clamp(0.84 + 0.16 * weightedSoil, 0.65, 1);
+  const pollenFactor = clamp(0.87 + 0.13 * weightedSoil, 0.7, 1);
   const forageDistanceKm = resourceSum + cropResource > 0 ? (distanceSum + cropResource * 0.35) / (resourceSum + cropResource) : 0;
   const landscapeAccess = clamp((1 - 0.05 * forageDistanceKm) * (structure === 'fragmented' ? 0.96 : 1), 0.4, 1);
   const exposureIndex = pesticidePressure * (0.34 + 0.66 * cropBloom) * seasonActivity(doy);
   const wildPollinators = clamp((0.12 + 0.6 * spring + 0.42 * summer) * wildflower * (1 - 0.55 * pesticidePressure), 0, 1);
   return { flowerResource, wildflower, cropBloom, flightWeather, nectarFactor, pollenFactor, rainyDay, wildPollinators, regime,
-    zoneResources, landscapeAccess, forageDistanceKm, exposureIndex, waterAccess, pesticidePressure, structure };
+    zoneResources, landscapeAccess, forageDistanceKm, exposureIndex, waterAccess, pesticidePressure, structure,
+    zoneRain: weather.rain, zoneSnowfall: weather.snowfall, zoneSnowpack: weather.snowpack,
+    zoneTemperature: weather.temperature, zoneCloud: weather.clouds, zoneSoil: weather.soil,
+    zoneWeatherCause: weather.causes, zoneWeatherKind: weather.kinds };
 }
 
 function seasonActivity(doy) { return clamp((doy - 55) / 55, 0, 1) * clamp((350 - doy) / 60, 0, 1); }
@@ -303,6 +313,10 @@ export function simulate(input = {}, options = {}) {
         flightWeather: environment.flightWeather, rainyDay: environment.rainyDay,
         landscapeAccess: environment.landscapeAccess, forageDistanceKm: environment.forageDistanceKm,
         exposureIndex: environment.exposureIndex, zoneResources: environment.zoneResources,
+        zoneRain: environment.zoneRain, zoneSnowfall: environment.zoneSnowfall,
+        zoneSnowpack: environment.zoneSnowpack, zoneTemperature: environment.zoneTemperature,
+        zoneCloud: environment.zoneCloud, zoneSoil: environment.zoneSoil,
+        zoneWeatherCause: environment.zoneWeatherCause, zoneWeatherKind: environment.zoneWeatherKind,
       } : {}),
     };
     if (t >= burnin - YEAR && t < burnin) previousYear.push(current.adults);
@@ -471,3 +485,4 @@ export function uncertainty(input = {}, options = {}) {
     method: '독립 균등분포 가정의 파라미터 시나리오 P10–P90. 통계적 신뢰구간이 아닙니다.',
   };
 }
+

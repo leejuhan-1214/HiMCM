@@ -488,6 +488,15 @@ export function createWorld(container, { onSelect } = {}) {
     { key: 'crop', title: '넓은 경작지', x: 34, z: 17, sx: 42, sz: 17, mat: regionMaterials.crop },
     { key: 'village', title: '마을과 정원', x: 39, z: 40, sx: 48, sz: 27, mat: regionMaterials.village },
   ];
+  // Low wooded ridge: this is the terrain feature used by the weather model
+  // for extra upslope lift, not a photorealistic or surveyed topographic map.
+  const ridgeMaterial = material('ridge', '#60775e', { roughness: 1 });
+  const ridgePieces = [];
+  for (let i = 0; i < 15; i++) ridgePieces.push({
+    p: [-63 + i * 9, 1.5 + 0.8 * Math.sin(i * 1.7), -62 + 2 * Math.sin(i * 1.2)],
+    s: [7.5, 3.2 + 1.6 * Math.sin(i * 0.8) ** 2, 6.5],
+  });
+  batch(icoGeometry, ridgeMaterial, ridgePieces, world, false);
   const regionGeo = geometry('region-ground', () => new THREE.PlaneGeometry(1, 1));
   function irregularPatch(width, depth) {
     const shape = new THREE.Shape();
@@ -508,6 +517,15 @@ export function createWorld(container, { onSelect } = {}) {
     surface.userData.pickType = 'zone';
     surface.userData.zoneKey = region.key;
     pickables.push(surface);
+  }
+  const snowPatchMaterial = material('snow-patch', '#ecf0ed', { transparent: true, opacity: 0.82, depthWrite: false });
+  const snowPatches = new Map();
+  for (const region of [{ key: 'hive', x: -8, z: -1, sx: 30, sz: 24 }, ...regionSpecs]) {
+    const patch = mesh(regionGeo, snowPatchMaterial, [region.x, -0.075, region.z],
+      [region.sx * 0.86, region.sz * 0.86, 1], [-Math.PI / 2, 0, 0]);
+    patch.castShadow = false;
+    patch.visible = false;
+    snowPatches.set(region.key, patch);
   }
   const regionBloomMat = material('region-bloom', '#e2dbc0', { roughness: 1 });
   const regionBloomItems = [];
@@ -568,13 +586,20 @@ export function createWorld(container, { onSelect } = {}) {
 
   const clouds = new THREE.Group();
   world.add(clouds);
-  clouds.visible=false;
-  const cloudRecords = [];
-  for (const [x, y, z, size] of [[-18, 11, -6, 1.4], [0, 14, -19, 1.7], [18, 12, -13, 1.45]]) {
-    for (let j = 0; j < 6; j++) cloudRecords.push({ p: [x + (j - 2.5) * 0.75 * size, y + Math.sin(j * 2.1) * 0.25, z + Math.cos(j * 1.7) * 0.4], s: [size * range(0.8, 1.2), size * range(0.48, 0.75), size * range(0.7, 0.9)] });
-  }
+  const cloudPatches = new Map();
   const cloudMaterial = material('clouds', '#f6f5e9', { roughness: 1 });
-  batch(sphereGeometry, cloudMaterial, cloudRecords, clouds, false);
+  for (const region of [{ key: 'hive', x: -9, z: -2, sx: 26, sz: 20 }, ...regionSpecs]) {
+    const group = new THREE.Group();
+    group.position.set(region.x, 15, region.z);
+    const items = Array.from({ length: 7 }, (_, j) => ({
+      p: [(j - 3) * 2.0, Math.sin(j * 2.1) * 0.35, Math.cos(j * 1.7) * 1.4],
+      s: [range(2.5, 3.8), range(1.25, 2.1), range(1.8, 2.8)],
+    }));
+    batch(sphereGeometry, cloudMaterial, items, group, false);
+    group.visible = false;
+    clouds.add(group);
+    cloudPatches.set(region.key, group);
+  }
 
   // Animated bees use six instanced draw groups, including stripes and wings.
   const MAX_BEES = 200;
@@ -731,8 +756,12 @@ export function createWorld(container, { onSelect } = {}) {
     line.computeLineDistances(); routes.add(line);
   }
 
-  const RAIN_COUNT = 380;
-  const rainRecords = Array.from({ length: RAIN_COUNT }, () => ({ x: range(-16.5, 16.5), z: range(-12.5, 12.5), y: range(0, 16) }));
+  const rainFootprints = [{ key: 'hive', x: -9, z: -2, sx: 28, sz: 22 }, ...regionSpecs];
+  const rainRecords = rainFootprints.flatMap(region => Array.from({ length: 95 }, () => ({
+    key: region.key, x: region.x + range(-region.sx * 0.42, region.sx * 0.42),
+    z: region.z + range(-region.sz * 0.42, region.sz * 0.42), y: range(0, 16),
+  })));
+  const RAIN_COUNT = rainRecords.length;
   const rainPositions = new Float32Array(RAIN_COUNT * 6);
   const rainGeometry = track(new THREE.BufferGeometry());
   rainGeometry.setAttribute('position', new THREE.BufferAttribute(rainPositions, 3).setUsage(THREE.DynamicDrawUsage));
@@ -740,7 +769,7 @@ export function createWorld(container, { onSelect } = {}) {
   rain.visible = false;
   rain.frustumCulled = false;
   world.add(rain);
-  const snowPositions = new Float32Array(180 * 3);
+  const snowPositions = new Float32Array(RAIN_COUNT * 3);
   const snowGeometry = track(new THREE.BufferGeometry());
   snowGeometry.setAttribute('position', new THREE.BufferAttribute(snowPositions, 3).setUsage(THREE.DynamicDrawUsage));
   const snow = new THREE.Points(snowGeometry, track(new THREE.PointsMaterial({ color: '#ffffff', size: 0.11, transparent: true, opacity: 0.82, depthWrite: false })));
@@ -919,8 +948,9 @@ export function createWorld(container, { onSelect } = {}) {
 
   function appearance(state) {
     const season = ['spring', 'summer', 'autumn', 'winter'].includes(state.season) ? state.season : 'spring';
-    const weather = ['clear', 'rain', 'drought'].includes(state.renderWeather) ? state.renderWeather : 'clear';
-    const key = `${season}:${weather}`;
+    const weather = ['clear', 'rain', 'snow', 'drought'].includes(state.renderWeather) ? state.renderWeather : 'clear';
+    const hiveCloud = clamp(number(state.zoneCloud?.hive, 0), 0, 1);
+    const key = `${season}:${weather}:${Math.round(hiveCloud * 3)}`;
     const winter = season === 'winter';
     if (key !== appearanceKey) {
       appearanceKey = key;
@@ -939,20 +969,28 @@ export function createWorld(container, { onSelect } = {}) {
       flowerMaterial.color.set(weather === 'drought' ? '#c5bba6' : '#e9e9dc');
       treeSnow.visible = winter;
       leafCardMesh.visible = !winter;
-      hiveSnow.visible = winter && !detailMode;
-      groundSnow.visible = winter;
+      hiveSnow.visible = !detailMode && number(state.zoneSnowpack?.hive, 0) > 0.16;
+      groundSnow.visible = false;
       treeFruit.visible = !winter;
       for (const region of regionSpecs) region.mat.color.set(weather === 'drought' ?
         { meadow: '#878962', orchard: '#87866a', woodland: '#69745b', crop: '#aaa177', village: '#999789' }[region.key] :
         winter ? '#a4aba1' : { meadow: '#8aa276', orchard: '#82956c', woodland: '#62755b', crop: '#a09a72', village: '#899279' }[region.key]);
       regionCrowns.visible = !winter;
-      snow.visible = winter;
-      rain.visible = weather === 'rain' && !winter;
+      snow.visible = Object.values(state.zoneSnowNow ?? {}).some(value => number(value, 0) > 0.08);
+      rain.visible = weather === 'rain';
       pond.material.color.set(winter ? '#869d9b' : weather === 'drought' ? '#687a6c' : '#536e6b');
       pond.material.roughness = winter ? 0.1 : 0.21;
-      cloudMaterial.color.set(weather === 'rain' ? '#8d9da2' : '#d7ddd7');
-      targetColor.set(weather === 'rain' ? '#9caab0' : tones.sky);
+      cloudMaterial.color.set(weather === 'rain' || weather === 'snow' ? '#8d9da2' : '#d7ddd7');
+      targetColor.set(hiveCloud > 0.42 ? '#a6b5b6' : tones.sky);
     }
+    // Cloud/rain footprints are per patch; a wet orchard does not cause rain
+    // to fall over the whole hive or forest.
+    for (const [name, patch] of cloudPatches) patch.visible = number(state.zoneCloud?.[name], 0) > 0.24;
+    clouds.visible = [...cloudPatches.values()].some(patch => patch.visible);
+    rain.visible = Object.values(state.zoneRainNow ?? {}).some(value => number(value, 0) > 0.08);
+    snow.visible = Object.values(state.zoneSnowNow ?? {}).some(value => number(value, 0) > 0.08);
+    hiveSnow.visible = !detailMode && number(state.zoneSnowpack?.hive, 0) > 0.16;
+    for (const [name, patch] of snowPatches) patch.visible = number(state.zoneSnowpack?.[name], 0) > 0.16;
     // Caller owns flower coverage. Season only changes appearance, not model values.
     const coverage = clamp(number(state.flowerCoverage, 1), 0, 1);
     visibleFlowerCount = Math.round(flowerRecords.length * coverage);
@@ -977,7 +1015,7 @@ export function createWorld(container, { onSelect } = {}) {
     shrubMesh.visible=!winter;
     const hour = mod(number(state.hour, 11), 24);
     const daylight = clamp(Math.sin((hour - 6) / 12 * Math.PI), 0, 1);
-    const wet = weather === 'rain' ? 0.55 : 1;
+    const wet = number(state.zoneRainNow?.hive, 0) > 0.1 ? 0.55 : 1;
     const nightColor = new THREE.Color('#263640');
     background.copy(nightColor).lerp(targetColor, 0.24 + daylight * 0.76);
     scene.background.copy(background);
@@ -1015,28 +1053,34 @@ export function createWorld(container, { onSelect } = {}) {
     ripple.scale.setScalar(0.85 + mod(motion * 0.05) * 0.4);
     ripple.material.opacity = 0.45 * (1 - mod(motion * 0.05));
     if (rain.visible) {
-      const n = quality === 'low' ? 220 : RAIN_COUNT;
-      rainGeometry.setDrawRange(0, n * 2);
-      for (let i = 0; i < n; i++) {
-        const r = rainRecords[i];
+      let n = 0;
+      for (const r of rainRecords) {
+        const intensity = clamp(number(latest.zoneRainNow?.[r.key], 0), 0, 1);
+        if (intensity <= 0.08 || (quality === 'low' && n >= 300) || mod((r.x + r.z) * 0.37 + r.y * 0.19) > intensity) continue;
         const y = mod(r.y - motion * 4.5, 15);
-        const offset = i * 6;
+        const offset = n * 6;
         rainPositions[offset] = r.x;
         rainPositions[offset + 1] = y;
         rainPositions[offset + 2] = r.z;
         rainPositions[offset + 3] = r.x - 0.13;
         rainPositions[offset + 4] = y - 0.58;
         rainPositions[offset + 5] = r.z + 0.055;
+        n++;
       }
+      rainGeometry.setDrawRange(0, n * 2);
       rainGeometry.attributes.position.needsUpdate = true;
     }
     if (snow.visible) {
-      for (let i = 0; i < 180; i++) {
-        const r = rainRecords[i];
-        snowPositions[i * 3] = r.x + Math.sin(motion * 0.15 + i) * 0.35;
-        snowPositions[i * 3 + 1] = mod(r.y - motion * 0.38, 13);
-        snowPositions[i * 3 + 2] = r.z;
+      let n = 0;
+      for (const r of rainRecords) {
+        const intensity = clamp(number(latest.zoneSnowNow?.[r.key], 0), 0, 1);
+        if (intensity <= 0.08 || (quality === 'low' && n >= 220) || mod((r.x + r.z) * 0.37 + r.y * 0.19) > intensity) continue;
+        snowPositions[n * 3] = r.x + Math.sin(motion * 0.15 + n) * 0.35;
+        snowPositions[n * 3 + 1] = mod(r.y - motion * 0.38, 13);
+        snowPositions[n * 3 + 2] = r.z;
+        n++;
       }
+      snowGeometry.setDrawRange(0, n);
       snowGeometry.attributes.position.needsUpdate = true;
     }
     pulse.visible = false;
