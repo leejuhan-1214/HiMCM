@@ -35,8 +35,9 @@ $$('[data-weather]').forEach(button=>{button.lastChild.textContent=climateLabels
 $('.hive-processes').insertAdjacentHTML('beforeend','<div><span>꿀 저장</span><b id="detail-nectar">—</b></div><div><span>꽃가루 저장</span><b id="detail-pollen">—</b></div><div><span>주변 꽃 자원</span><b id="detail-resource">—</b></div><div><span>꽃가루 충족</span><b id="detail-nutrition">—</b></div><div><span>야생 수분매개자 활동</span><b id="detail-wild">—</b></div>');
 $('.pollination-status').insertAdjacentHTML('beforeend','<p id="world-resource" class="world-resource" aria-live="off">꽃 자원과 저장량을 계산하는 중입니다.</p>');
 $('.pollination-status').insertAdjacentHTML('beforeend','<p id="world-stressors" class="world-stressors" aria-live="off">외부요인 연결을 계산하는 중입니다.</p>');
-$('.world-observation .observation-footer').insertAdjacentHTML('beforebegin','<div class="weather-observer"><span class="overline">LOCAL WEATHER · 왜 이곳에 비가 올까?</span><p id="weather-cause" aria-live="off">구역별 하늘을 계산하는 중입니다.</p><small>전선·소나기 → 토양 수분 → 꽃 → 벌통</small></div>');
+$('.world-overlay').insertAdjacentHTML('beforeend','<aside class="weather-observer" aria-label="구역별 날씨 원인"><span class="overline">LOCAL WEATHER · 왜 이곳에 비가 올까?</span><p id="weather-cause" aria-live="off">구역별 하늘을 계산하는 중입니다.</p><small>전선·소나기 → 토양 수분 → 꽃 → 벌통</small></aside>');
 $('.environment-panel .quality-setting').insertAdjacentHTML('beforebegin','<button id="jump-local-rain" class="wide-button" type="button">구역별 비가 다른 날 보기 <span>↗</span></button>');
+$('#jump-local-rain').insertAdjacentHTML('afterend','<p id="weather-cause-panel" class="setting-hint" aria-live="off"></p>');
 $('.quality-setting').insertAdjacentHTML('beforebegin','<div class="setting"><label for="habitat-quality">주변 꽃 서식지 <b id="habitat-quality-label">70%</b></label><input id="habitat-quality" type="range" min="50" max="110" value="70" step="5"><p class="setting-hint">농지 가장자리·야생화·꽃나무의 먹이량과 다양성에 대한 가상 대리변수</p></div>');
 $('.quality-setting').insertAdjacentHTML('beforebegin','<label class="control-label" for="landscape-structure">주변 경관 배치</label><select id="landscape-structure"><option value="mixed">연결된 혼합 경관</option><option value="flowerStrip">이어진 꽃길·초지</option><option value="fragmented">분절된 경작지</option></select><div class="setting"><label for="water-access">물 접근성 <b id="water-access-label">70%</b></label><input id="water-access" type="range" min="0" max="100" value="70" step="5"><p class="setting-hint">가뭄 해의 꽃·꿀 생산을 완충하는 가상 조건</p></div><div class="setting"><label for="pesticide-pressure">농약 노출 압력 <b id="pesticide-pressure-label">0%</b></label><input id="pesticide-pressure" type="range" min="0" max="100" value="0" step="5"><p class="setting-hint">작물 개화기 채집벌 사망 위험의 가상 스트레스 지수</p></div>');
 $('.camera-tools [data-camera="overview"] span:last-child').textContent='광역';
@@ -114,6 +115,7 @@ function updateUI(){
   const focus=Object.entries(frame.zoneRainNow).find(([,amount])=>amount>0.10)?.[0]
     ??Object.entries(frame.zoneSnowNow).find(([,amount])=>amount>0.10)?.[0]??'hive';
   $('#weather-cause').textContent=`${raining.length?`지금 비: ${raining.join(' · ')}`:snowing.length?`지금 눈: ${snowing.join(' · ')}`:'지금 내리는 강수 없음'} · ${frame.zoneWeatherCause[focus]}`;
+  $('#weather-cause-panel').textContent=$('#weather-cause').textContent;
   $('#world-timeline').value=frame.elapsedDays;
   $('#spark-cursor')?.setAttribute('x1',String(Math.min(180,frame.elapsedDays/365*180)));$('#spark-cursor')?.setAttribute('x2',String(Math.min(180,frame.elapsedDays/365*180)));
   document.body.dataset.night=String(frame.daylight<.05);
@@ -148,7 +150,7 @@ function showResults(){
   saveSnapshot();$('#results-dialog').showModal();
 }
 function saveSnapshot(){
-  const data={version:'2.4.0',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Weather fronts, showers, patch rain and soil moisture are synthetic deterministic scenario assumptions, not forecasts.','Landscape patches, foraging distances, water and exposure effects are uncalibrated.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
+  const data={version:'2.4.1',timestamp:new Date().toISOString(),params,farm,ecology:ecologyOptions(),timeline:timeline.getState(),weather,scenario,snapshot:frame,notes:['Weather fronts, showers, patch rain and soil moisture are synthetic deterministic scenario assumptions, not forecasts.','Landscape patches, foraging distances, water and exposure effects are uncalibrated.','Store units are 1,000 summer-adult daily ration equivalents, not measured kilograms.','3D bees, flowers and comb cells are illustrative samples, not individually modelled organisms.']};
   if(snapshotURL)URL.revokeObjectURL(snapshotURL);snapshotURL=URL.createObjectURL(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}));$('#export-world').href=snapshotURL;
   let preview=$('#snapshot-preview');if(!preview){preview=document.createElement('details');preview.id='snapshot-preview';preview.innerHTML='<summary>다운로드가 시작되지 않나요? JSON 내용 보기</summary><textarea id="snapshot-json" readonly aria-label="현재 시점 JSON 데이터" rows="7"></textarea>';$('#results-dialog').append(preview);}$('#snapshot-json').value=JSON.stringify(data,null,2);
 }
